@@ -19,6 +19,7 @@ func log(_ message: String) {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let line = "\(formatter.string(from: Date())) \(message)\n"
-    FileHandle.standardOutput.write(Data(line.utf8))
-    Log.file?.write(Data(line.utf8))
+    // Diagnostics must not abort display/input recovery if a pipe closes or the log disk is full.
+    try? FileHandle.standardOutput.write(contentsOf: Data(line.utf8))
+    try? Log.file?.write(contentsOf: Data(line.utf8))
 }

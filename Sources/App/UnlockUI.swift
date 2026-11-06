@@ -32,25 +32,52 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
     private var keyInputLogged = false
     private var verifying = false
     private var biometricContext: LAContext?
+    private struct ScreenLayout: Equatable {
+        let id: UInt32?
+        let frame: NSRect
+        let scale: CGFloat
+    }
+    private var shownLayout: [ScreenLayout] = []
+    private var shownOnlineDisplays: [CGDirectDisplayID]?
 
     var isShowing: Bool { panel != nil }
+    var displayLayoutIsCurrent: Bool {
+        shownLayout == Self.layout(of: NSScreen.screens)
+            && shownOnlineDisplays == SystemDisplayGamma().onlineDisplays()?.sorted()
+    }
+
+    private static func layout(of screens: [NSScreen]) -> [ScreenLayout] {
+        screens.map {
+            ScreenLayout(id: ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value,
+                         frame: $0.frame, scale: $0.backingScaleFactor)
+        }
+    }
 
     private static let level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)))
     private static let panelWidth: CGFloat = 380
 
     // MARK: Lifecycle
 
-    /// Shows the backdrop and controls. Calls `ready` once the backdrop has been drawn.
+    /// Shows the backdrop and controls. `ready` must authorize presentation before authentication.
     /// `autoBiometrics` is false for menu-triggered (remote) sessions: Touch ID is unusable over UU,
     /// and the system prompt would take keyboard focus away from the password field.
-    func show(autoBiometrics: Bool, ready: @escaping @MainActor () -> Void) {
-        guard !isShowing else { ready(); return }
-        backdrops = NSScreen.screens.map { makeBackdrop(for: $0) }
+    @discardableResult
+    func show(autoBiometrics: Bool, ready: @escaping @MainActor () -> Bool) -> Bool {
+        guard !isShowing else { return ready() }
+        let screens = NSScreen.screens
+        guard let screen = screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main ?? screens.first,
+              !screens.isEmpty else {
+            log("unlock-ui unavailable no-screens")
+            return false
+        }
+        shownLayout = Self.layout(of: screens)
+        shownOnlineDisplays = SystemDisplayGamma().onlineDisplays()?.sorted()
+        backdrops = screens.map { makeBackdrop(for: $0) }
         updateClocks()
         clockTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateClocks() }
         }
-        let panel = makePanel(remote: !autoBiometrics)
+        let panel = makePanel(remote: !autoBiometrics, screen: screen)
         self.panel = panel
         loadAvatar()
         keyInputLogged = false
@@ -75,9 +102,11 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
             guard self.panel === panel else { return }
             panel.orderFrontRegardless()
             self.focusPasswordField()
-            ready()
+            guard ready() else { return }
+            guard self.panel === panel else { return } // The caller may have returned to black.
             if autoBiometrics { self.startBiometrics() }
         }
+        return true
     }
 
     /// Removes all windows. Callers must zero gamma first when returning to the black state.
@@ -100,6 +129,8 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
         backdrops.forEach { $0.orderOut(nil) }
         backdrops.removeAll()
         clocks.removeAll()
+        shownLayout.removeAll()
+        shownOnlineDisplays = nil
         verifying = false
         NSApp.hide(nil) // hand focus back to the app the agent was using
         log("unlock-ui hidden")
@@ -162,7 +193,7 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
 
     // MARK: Controls
 
-    private func makePanel(remote: Bool) -> NSPanel {
+    private func makePanel(remote: Bool, screen: NSScreen) -> NSPanel {
         let panel = KeyablePanel(contentRect: NSRect(x: 0, y: 0, width: Self.panelWidth, height: 300),
                                  styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         // Do not set isFloatingPanel: its setter resets the level to .floating (3), which put the
@@ -275,8 +306,8 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
         ])
         panel.contentView = root
         let size = root.fittingSize
-        let screen = NSScreen.main?.frame ?? .zero
-        panel.setFrame(NSRect(x: screen.midX - size.width / 2, y: screen.minY + screen.height * 0.07,
+        let frame = screen.frame
+        panel.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.minY + frame.height * 0.07,
                               width: size.width, height: size.height), display: true)
 
         self.avatar = avatar
@@ -461,14 +492,14 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
             let ok = Self.verifyLoginPassword(user: user, password: password)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard self.verifying else { return }
+                    guard self.passwordField === field, self.verifying else { return }
                     if ok {
                         self.onSuccess?("password")
                     } else {
                         log("unlock-ui password-rejected")
                         // Slow down guessing.
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                            guard self.verifying else { return }
+                            guard self.passwordField === field, self.verifying else { return }
                             self.setVerifying(false)
                             self.shake()
                             self.focusPasswordField()

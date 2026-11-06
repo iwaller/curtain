@@ -8,12 +8,13 @@
 | --- | --- | --- |
 | agent 协作规范、需求分析、实验步骤 | 已完成文档 | [AGENTS.md](../AGENTS.md)、[实验方案](poc-plan.md) |
 | 实验 CLI `curtain-poc` | 已编译 | [POC](../Sources/POC/main.swift)、[构建脚本](../scripts/build.sh) |
-| 菜单栏应用 `Curtain.app`（第一版第 1、2 步） | 已编译，启动/退出已检查；拉上幕布未实机验证 | [菜单栏子系统](subsystems/menu-bar-app.md) |
+| 菜单栏应用 `Curtain.app` | 本地解锁、20 秒回黑、UU 密码解锁已实测；输入拦截后的 Codex/UU 完整回归待测 | [菜单栏子系统](subsystems/menu-bar-app.md) |
+| 心跳守护与故障锁屏 | 已实现；主线程每秒心跳，约 10 秒超时后请求系统锁屏并结束 Curtain；替代菜单栏默认 300 秒限制，验收见验证记录 | [故障恢复](subsystems/recovery-watchdog.md) |
 | 每显示器黑色覆盖窗口、限时退出 | 已实现；单显示器启动/退出实测 | [遮罩子系统](subsystems/privacy-overlay.md) |
 | Computer Use 截图与点击兼容性 | 普通遮罩下截图可读、坐标点击通过 | [验证子系统](subsystems/computer-use-validation.md) |
-| Space、全屏切换及返回后的覆盖 | 工具侧可操作；全屏过渡覆盖失败，4 项修复对照均失败，已回退；普通 Space 与实体待测 | [实验方案](poc-plan.md) |
-| Gamma 清零模式 `--gamma` | 2026-11-05 现场通过：实体全黑、原生全屏进出不闪、Computer Use 截图与点击有效；Space/UU/多显示器未测 | [遮罩子系统](subsystems/privacy-overlay.md) |
-| 密码、菜单栏、输入限制 | 后续评估 | [路线图](roadmap.md) |
+| Space、全屏切换及返回后的覆盖 | gamma 单屏全屏、镜像双屏普通 Space 往返及解锁界面 Space 变化回黑现场通过；旧窗口遮罩曾失败，仍不能保证所有过渡零闪露 | [菜单栏子系统](subsystems/menu-bar-app.md) |
+| Gamma 清零模式 `--gamma` | 单屏及 1920×1080 实体镜像双屏普通 Space 现场通过；逐屏失败回滚模拟通过；扩展模式/HDR/热插拔第一帧待测 | [遮罩子系统](subsystems/privacy-overlay.md) |
+| 本地输入拦截 | closed 拦截、unlocking 放行；本地现场通过 | [输入拦截](subsystems/input-guard.md) |
 
 ## 运行路径
 
@@ -48,7 +49,15 @@ Codex Computer Use
 
 [POC](../Sources/POC/main.swift) 包含参数解析、应用入口与主线程生命周期。自动退出 Timer、SIGINT/SIGTERM 处理先于遮罩安装；窗口使用 screenSaver 层级（本机 1000），不激活应用，不成为 key/main window，鼠标穿透。显示器参数变化时重建窗口，但热插拔尚未实测。
 
-[build.sh](../scripts/build.sh) 通过 `xcrun swiftc` 编译，输出实验 CLI `build/curtain-poc` 和 ad-hoc 签名的 `build/Curtain.app`；共享代码在 `Sources/Shared/`（gamma 清零、日志），应用代码在 `Sources/App/`，`Resources/Info.plist` 设 `LSUIElement`。测试页为 [click-test.html](../fixtures/click-test.html)，不需要临时服务器。截图、桌面状态和运行日志归忽略的 `artifacts/`，脱敏实测结论见 [验证记录](verification.md)。
+[build.sh](../scripts/build.sh) 通过 `xcrun swiftc` 编译，输出实验 CLI `build/curtain-poc`、`build/Curtain.app` 及其 `Contents/Helpers/CurtainWatchdog`；优先 Apple Development 证书，缺失时 ad-hoc。共享代码在 `Sources/Shared/`（gamma 清零、日志），应用代码在 `Sources/App/`，独立守护在 `Sources/Watchdog/`；`Resources/Info.plist` 设 `LSUIElement`。测试页为 [click-test.html](../fixtures/click-test.html)，不需要临时服务器。截图、桌面状态和运行日志归忽略的 `artifacts/`，脱敏实测结论见 [验证记录](verification.md)。
+
+菜单栏应用在清零 gamma 前启动守护并等待 ready；closed/unlocking 期间仅主线程发送心跳。守护先回复故障已提交 `F`，再由短命子进程调用系统私有锁屏入口，限时确认后结束父进程，不再主动暂停父进程。正常恢复须确认撤销守护；收到 `F` 时延后清理和退出，防止晚到的正常解锁先恢复桌面。守护自身退出时，仍可由恢复运行的主线程收尾。锁屏请求失败仍优先恢复可操作性，不承诺安全锁屏；详见[恢复契约](subsystems/recovery-watchdog.md)。
+
+显示管线边界为 [DisplayGamma.swift](../Sources/Shared/DisplayGamma.swift)：全部在线显示器均清零成功且读回全零才视为启动成功。运行中失效、首次拉上或回黑失败时，组件暂停监测、保留曲线和 lease，由 owner 先协调守护再恢复；收到 F 时进入 recovering，禁止提前回滚，守护退出后仍可统一收尾。CLI 无守护，立即回滚并退出 1。解锁界面依据屏幕快照布置；恢复 gamma 前核对快照和已排队的 F，Space 或屏幕拓扑改变后尝试回黑并作废旧认证。实际热插拔和过渡最初几帧仍需实体观察，不能由通知/巡检机制推断零闪露。
+
+[GammaLease.swift](../Sources/Shared/GammaLease.swift) 使用同一用户的持久锁文件与内核 flock，保证同时只有一个 Curtain gamma 控制者；未取得控制权的菜单栏/CLI 实例不能清零或恢复其他实例的曲线，CLI 拒绝启用返回 1。锁覆盖 gamma 实际生效区间，正常停止或进程结束时释放，不继承给 exec 子进程。
+
+组合回归为 `python3 scripts/test-recovery-gamma.py`：使用真实守护管道协议、模拟显示曲线及锁屏替身覆盖上述清理顺序；不修改实体 gamma、不请求真实锁屏。
 
 ## 修复对照后的状态
 

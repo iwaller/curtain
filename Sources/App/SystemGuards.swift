@@ -7,8 +7,9 @@ final class SleepGuard {
     private var assertion: IOPMAssertionID = 0
     private var held = false
 
-    func acquire() {
-        guard !held else { return }
+    @discardableResult
+    func acquire() -> Bool {
+        guard !held else { return true }
         let result = IOPMAssertionCreateWithName(
             kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
             IOPMAssertionLevel(kIOPMAssertionLevelOn),
@@ -16,6 +17,7 @@ final class SleepGuard {
             &assertion)
         held = result == kIOReturnSuccess
         log("sleep-guard acquire result=\(result) held=\(held)")
+        return held
     }
 
     func release() {

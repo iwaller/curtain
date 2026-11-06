@@ -17,7 +17,9 @@ $swiftc_common -framework AppKit Sources/Shared/*.swift Sources/POC/main.swift -
 
 app=build/Curtain.app
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers"
+$swiftc_common -framework CoreGraphics Sources/Watchdog/*.swift -o "$app/Contents/Helpers/CurtainWatchdog"
+codesign --force --timestamp=none --sign "$identity" "$app/Contents/Helpers/CurtainWatchdog" >/dev/null
 $swiftc_common -framework AppKit -framework IOKit -framework ApplicationServices \
   Sources/Shared/*.swift Sources/App/*.swift -o "$app/Contents/MacOS/Curtain"
 cp Resources/Info.plist "$app/Contents/Info.plist"

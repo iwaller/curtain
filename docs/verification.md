@@ -303,3 +303,98 @@ M1 不通过完整验收，不进入产品功能。下一步应在已确认观�
 - 两项修正已编译安装，待复测。用户确认：拉上时按下的字母没有进入文本编辑文档（键盘拦截通过）。
 
 复测（02:28–02:29 UTC）：拉上后约 2.2 秒才被触控板唤醒（宽限生效）；时钟位于屏幕上方居中（用户确认）；取消冷却、20 秒回黑、指纹解锁正常，两轮分别吞掉 121、41 个实体事件。待测：拦截开启时 Codex 与 UU 照常操作；守护进程；去掉 5 分钟兜底后的整夜运行。
+
+## 2026-11-06：独立心跳守护与故障锁屏
+
+用户确认实现“约 10 秒无主线程心跳 → 先尝试系统锁屏 → 结束 Curtain 恢复显示/输入”，并在实体 Mac 旁参与真实验收。菜单栏应用默认 `safetyTimeout=0`，实验 CLI 的 1–300 秒上限、解锁界面的 20 秒回黑保持不变。恢复契约见[心跳守护](subsystems/recovery-watchdog.md)。
+
+### 构建与进程级测试
+
+- `./scripts/build.sh` 通过，独立 helper 与应用均使用现有 Apple Development 证书签名；`codesign --verify --deep --strict build/Curtain.app` 通过。已在幕布拉开状态用 `scripts/install.sh` 安装新版到 `/Applications/Curtain.app`；12:00:34（UTC+8）启动日志为 `safetyTimeout=0.0`，没有设置覆盖默认值的 defaults 项。
+- 本机 macOS 26.7.1 的 `login.framework/SACLockScreenImmediate` 符号存在。这里只把符号检查算预检，不把它当作锁屏成功证据。
+- `python3 scripts/test-watchdog.py` 全部通过。测试 helper 用锁屏替身，未操作实体显示：心跳期限边界、超过 10 秒正常心跳、重复 start/stop、快速重启隔离旧回调、正常撤销不锁屏、缺少 helper、锁屏符号缺失、启动不回应（限时失败）、守护被结束、父进程退出、管道异常关闭、非法协议均覆盖。
+- `SIGSTOP` 暂停测试父进程后，锁屏替身成功时约 10.2 秒确认并结束父进程；锁屏失败或请求子进程卡住时约 13.1 秒仍能结束父进程，未无限等待。真实系统锁屏不计入这些模拟结果。
+- 进程测试日志：`artifacts/watchdog-tests/`。未记录按键正文或密码。
+
+### 新版真实 GUI 检查
+
+- 12:01:27 拉上，12:01:29 本地触控板唤出解锁，12:01:31 `watchdog disarmed` 在恢复/清理前完成，随后 `unlocked method=touch-id`。用户确认正常回到桌面，没有进入系统锁屏。
+- Safari 新开专用本地 `fixtures/click-test.html` 标签页，保留原起始页。使用 Codex Computer Use（`cua_repl` 原生 app API），按截图坐标 `(1512,970)` 点击：基线 0→1；12:02:41 新一轮拉上（gamma 清零、tap block、守护已 ready）后截图仍可读，点击 1→2，日志保持 closed，未唤出解锁界面。应用截图与坐标点击通过，不把它替代实体屏幕连续观察。
+- 12:02:41 到 12:09:01 暂停注入前连续保持 closed 约 380 秒，Curtain 与 helper 均存活，无 `dev-safety-timeout`、`gamma-reset-detected` 或意外 unlocking；独立监测记录在 `artifacts/watchdog-tests/onsite-hold.log`。超过 5 分钟后再取应用截图时 Computer Use 返回 `native pipe closed before response`，未将此次截图计为通过；当时进程与幕布状态正常，系统会话仍未锁屏。
+- 12:09:01.702 用 `SIGSTOP` 暂停真实菜单栏应用；12:09:11.630 守护判定心跳丢失并请求锁屏，11.672 请求返回 0，11.723 独立读回 `lock-confirmed=true` 后才 `SIGKILL` Curtain；外部监测约 10.129 秒确认 Curtain 退出。Curtain、守护与请求子进程均无残留；未执行 22 秒外部应急结束。日志为 `artifacts/watchdog-tests/onsite-fault.log` 与 `onsite-curtain.log`。
+- 真实系统锁屏程序侧确认通过；实体登录界面、遮挡连续性与用户登录结果待现场反馈补充。
+- 故障恢复后额外读回显示管线：gamma 表 256 项，最大值约 1，`allBlack=false`；确认已恢复显示曲线，未仅依赖“进程退出就会恢复”的假设。此读回仍不替代实体屏幕验收。
+- 系统保持锁屏等待用户自行登录；12:14:44 已重新启动菜单栏应用到默认拉开待命状态（`safetyTimeout=0.0`，未再次清零 gamma，未启动守护）。专用 Safari 测试标签页因系统仍锁屏且 Computer Use 连接断开，暂无法 GUI 清理；登录后继续清理并补现场反馈，不把该轮算作全部现场验收完成。
+
+### 保留边界
+
+锁屏入口是系统私有接口，系统更新后需要复测；锁屏失败时仍优先恢复显示和输入，可能露出桌面。正常进程崩溃不会被本守护追加锁屏（父进程退出后守护直接退出）。UU 在开启输入拦截后的完整回归、UU 隐私屏、普通 Space、多显示器、睡眠唤醒与整夜运行尚未在本轮验证。
+
+## 2026-11-06：Space 与多显示器代码复查
+
+本轮发现并修正：
+
+- gamma 设置/读回失败原先只记日志仍显示 closed；现改为所有在线显示器均成功才启用，启动或运行中任一失败恢复全部显示并拒绝/拉开。枚举从 active 改为 online，包含可能未出现在 active 列表中的镜像成员；不支持 gamma 的外屏会拒绝启用，不能保证驱动支持。
+- gamma 巡检原先只在默认 run-loop mode 工作；改为 common modes，避免菜单跟踪期间停止纠正。
+- 解锁界面未处理显示器插拔/布局变化；现按快照创建，恢复 gamma 前再核对，解锁中发生实际拓扑变化则尝试回黑并撤销认证，下次唤出重建。认证面板放在鼠标所在显示器。仅颜色通知且布局未变不误取消解锁。
+- 解锁窗口本身仍可能随 Space 动画移走。新增 active-Space 通知后回黑，但通知不保证早于过渡开始，因此仍明确保留短暂露出的边界，没有继续叠加已失败的窗口属性。
+- 密码校验与 1 秒错误冷却仅检查全局 verifying，旧结果可能进入另一轮验证；现同时核对原密码框身份。Touch ID 原有 LAContext 校验保持。
+- 防睡眠断言失败时原先仍继续；现拒绝拉上。安装脚本现在依据当前 PID 的本次启动判断状态，防止旧 closed 日志误阻止更新，并对退出等待设 5 秒上限。
+
+验证：`./scripts/build.sh` 通过；`./scripts/test-display-gamma.sh` 模拟多个独立显示器的初始覆盖、新屏接入、移除、已激活时回黑重验、菜单跟踪模式巡检、API 失败/假成功但读回不黑、枚举失败与全部回滚均通过，未修改实体 gamma。`python3 scripts/test-watchdog.py` 回归全部通过（不锁系统）；安装日志解析的旧 PID/current closed/未知状态三项回归通过。密码跨会话回调和窗口拓扑变化为源码修正、编译通过，尚不能写成真实 GUI 通过。
+
+本机最初仅 1 块在线显示器，且系统仍锁屏。本轮用户随后登录，同意单屏 Space/全屏现场验证；修正版已在拉开状态安装，现场结果继续补充。真实双屏、镜像、HDR、热插拔第一帧均未验证。
+
+### 修正版全屏现场复测
+
+13:05:41（UTC+8）通过菜单拉上，`display=1 result=0 readback=black`，tap block、独立守护 ready。Computer Use 原生 Safari 截图可读，坐标 `(1512,970)` 点击依次 2→3（普通）、3→4（第一次全屏）、4→5（返回普通）、5→6（第二次全屏）、6→7（再次返回普通）；两轮由 `Ctrl+Cmd+F` 进入/退出原生全屏，各阶段截图确认窗口形态与内容。全程日志保持 closed，无误唤醒或 gamma 重置。用户确认“全程不闪”，随后 13:10:32 Touch ID 正常解锁并撤销守护。Safari 已返回普通窗口。
+
+### 普通 Space 与实际显示配置核对
+
+13:15:55 用有限时独立 CLI（`--gamma --duration 180`，菜单栏保持 open、不拦截本地输入）测试普通桌面。此时系统已变成镜像配置：活动 `display=3`，1920×1080；内置 `display=1` 不 active、`mirrorOf=3`。用户确认接了实体外接屏。两块在线显示器清零均成功且读回全零，因此 online 枚举实际覆盖了 active 列表会省略的内置镜像成员；不据此认定两块实体屏都已观察通过。
+
+用户最初反馈 Ctrl+方向键往返后全黑，但随后说明黑屏时不知道是否真的切换成功。只读 NSWorkspace 探针也没有 Space 通知，Safari 测试标签页变成起始页，故**不把该次快捷键尝试计为普通 Space 通过**。13:18:51 提前 SIGTERM 结束 CLI，恢复曲线并清理；只读探针自行按 200 秒限时退出。日志在 `artifacts/display-review/`。已加入主应用 Space/显示变化事件日志，先做明屏基线，再黑屏重测；真实扩展模式与热插拔仍待测。
+
+13:24:33、13:24:34 明屏基线：用户确认调度中心存在两个普通桌面，并实际 A→B→A；主应用独立收到两次 `active-space-changed state=open`。用户同时确认此前镜像配置的两块实体屏均黑，没有闪露。
+
+13:26:34–13:28:04 用新一轮 `--gamma --duration 90` 重测（日志 `space-gamma-confirmed.log`），3、1 两块在线显示器清零成功并读回全零。13:27:46、13:27:47 主应用记录两次真实 Space 通知，均在 CLI 超时前；用户确认已按同一套明屏有效操作完成普通 A→B→A，**内置屏与实体外接屏全程黑、不闪**。CLI 90 秒超时正常恢复，`reapplied=0`。据此，当前 1920×1080 镜像配置下 gamma 遮挡的普通 Space 往返现场通过；这轮菜单栏处于 open、CLI 未拦截输入，不能误称为“实体输入被拦截时还能用本地快捷键切 Space”。
+
+工具侧截图与坐标点击已在本轮菜单栏全屏测试中通过；第二轮普通 Space 测试结束时 CLI 已超时，未把恢复后的截图/点击充作黑屏期间的工具验收。真实扩展桌面、HDR、热插拔首次亮屏、整夜运行仍待验证。解锁界面在 Space 变化时主动回黑的现场结果另行补充。
+
+### 镜像双屏：解锁界面切 Space 主动回黑
+
+13:33:22 菜单栏拉上，3 与 1 均清零成功，tap block；13:33:26 触控板唤出，先显示背景再恢复 gamma，切到 observe。用户选择“输入密码”关闭 Touch ID 框（`biometrics-failed code=-3`），未正常解锁。
+
+13:33:44.845、13:34:01.522 两次 `active-space-changed state=unlocking` 后，均重新清零 3 与 1，再 observe→block、隐藏旧界面，进入 `closed active-space-changed`；日志中两块清零完成分别约在通知后 10、17 毫秒，隐藏窗口约在通知后 22、24 毫秒。该时间从收到通知开始计算，不是动画开始时刻。
+
+13:34:05 Touch ID 正常解锁，守护撤销、tap 停止、释放防睡眠。用户确认“切换后自动回黑，未看到桌面闪露，已正常解锁”。因此当前镜像配置下两次解锁界面 Space 变化回黑通过；肉眼观察不能排除单帧闪露，不将其外推成任意动画零闪露保证。
+
+清理：所有本轮 CLI/probe/守护均已退出；菜单栏应用保持 open 待命；Computer Use 关闭专用 Safari 测试标签页并回读原起始页，Safari 进程保留，原生全屏已退出。普通桌面由用户人工准备和往返，agent 未自动删除用户桌面或改变外屏镜像设置。原始过程日志保存于 `artifacts/display-review/curtain.log`。
+
+## 2026-11-06：再次复查——恢复竞态与 gamma 并发控制
+
+前轮漏掉的两项边界已复现并修复，本轮使用可结束的测试进程与模拟曲线，不触发真实锁屏、不改实体 gamma：
+
+- 守护主动 SIGSTOP 父进程后，如果守护被结束，测试父进程仍停在 T 状态。改为先回复故障已提交 `F`，正常解锁、退出、SIGTERM 收到后延后恢复/退出；守护不主动暂停父进程。守护随后退出且主线程恢复运行时，仍能收到退出回调并清理。请求子进程监听守护退出并设自身 3 秒退出计时，避免孤儿请求进程。
+- 两个模拟 GammaBlackout 共享曲线时，停止一个会使另一个仍 active 但曲线已恢复。新增同用户跨进程 GammaLease，在 Application Support 的稳定文件上持有 flock；只有取得控制权的实例能设置/恢复 gamma，进程退出自动释放，exec 子进程不继承。重复控制的 CLI 在任何 gamma 设置前拒绝，并返回 1；正常清理返回 0、参数错误返回 2。
+- 日志改为捕获写入错误，应用/CLI 忽略 SIGPIPE，避免日志管道关闭或写入失败直接中止恢复。通信单向断开时，即使发送 disarm 失败，也必须读取可能已排队的 F；恢复未结束前不能提前发出“守护失效、可拉开”的回调。
+
+验证均通过：`./scripts/build.sh`；`python3 scripts/test-watchdog.py`（含迟到 disarm、恢复中结束守护、关闭命令通道、损坏日志管道、锁屏失败/卡住和全部原有回归）；`./scripts/test-display-gamma.sh`（含跨进程互斥、被拒绝者不能恢复曲线、持有者 SIGKILL 后回收、真实 CLI 持锁拒绝且无 gamma-zero）；CLI 无遮罩正常退出 0、非法时长退出 2。新增测试未遗留请求进程。
+
+代码、复现与回归输出位于 `artifacts/recovery-review/`、`artifacts/watchdog-tests/`。修正版已在菜单栏处于拉开状态时安装到 `/Applications/Curtain.app`。本轮未重做实体黑屏、真实系统锁屏或 GUI 解锁验收；此前现场记录对应当时版本，不能把本轮编译/模拟通过当作新的现场结果。扩展模式、HDR、热插拔首帧、整夜运行仍待测。
+
+## 2026-11-06：交接 P1——gamma 回滚绕过守护 F
+
+交接证据 `artifacts/code-review/handoff.md`、`RecoveryGammaRace.swift`、`recovery-gamma-race.log` 确认：主线程停顿超过 10 秒后，GammaBlackout.refresh 在通知 owner 之前已经 restore；owner 再向守护请求撤销得到 F 时，曲线已提前恢复。相同隐式回滚也存在于已激活 start 重验、首次 start 部分设置失败路径。此前单模块通过不代表这个组合顺序正确；证据是替身与模拟曲线，非实体闪露观察。
+
+修复：失败组件暂停巡检、撤销显示回调并保留曲线/lease，以 isProtectionFailed 区分“仍持有待清理状态”和“保护有效”；start 失败由调用者清理，refresh 失败交回 owner，不在回调前后无条件 stop。菜单栏统一先请求撤销守护，再清理输入、gamma、窗口和防睡眠；F 拒绝时进入 recovering，暂停解锁/安全计时、禁止新唤醒和回滚，保留资源等待锁屏或守护退出。首次拉上仍处于 open 时也走完整清理，回黑失败同样受保护。解锁 UI 呈现前检查已排队 F，拒绝时不恢复 gamma、不自动弹 Touch ID；正常呈现保持守护运行。CLI 无守护，沿用立即回滚和退出 1。
+
+验证全部通过：
+
+- `./scripts/build.sh`，以及 `git diff --check`。
+- `python3 scripts/test-watchdog.py`，包含健康呈现许可、已提交 F 拒绝呈现/撤销及原有故障回归；日志 `artifacts/code-review/fix-watchdog.log`。
+- `./scripts/test-display-gamma.sh`，更新为 owner 显式清理失败 start，保留原多屏/互斥/CLI 拒绝回归；日志 `artifacts/code-review/fix-display-gamma.log`。
+- `python3 scripts/test-recovery-gamma.py`：17 个组合场景，覆盖 refresh、已激活 start、首次 start、relock start 的枚举/设置失败 × 正常撤销/F 已提交，以及守护退出后延迟清理。真实守护管道协议加模拟曲线/锁屏替身，确认 F 下 restore 次数不增加、有效曲线仍在、lease 不释放、巡检/重试不再写表或重复通知；正常撤销及守护退出时只恢复一次并完整释放。
+- 同一新增脚本将生产 CLI 仅替换后端构造，实际运行原 start/failure/cleanup/exit 流程：首次部分设置失败、运行中枚举失败均回滚一次并退出 1。组合输出 `artifacts/code-review/fix-regressions.log`，逐场景日志 `artifacts/recovery-gamma-tests/`。
+
+本轮保留全部已有工作区修改；未安装或重启正在运行的应用，未修改实体 gamma、未请求真实锁屏，未新增现场 GUI 验收。构建产物为待部署修正版，既有全屏/镜像现场记录仍对应当时版本；扩展模式、HDR、热插拔首帧、整夜运行继续待测。

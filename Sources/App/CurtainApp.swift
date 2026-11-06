@@ -4,6 +4,7 @@ import AppKit
 @MainActor
 enum CurtainMain {
     static func main() {
+        signal(SIGPIPE, SIG_IGN)
         Log.openFile(at: FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/Curtain/curtain.log"))
         let args = CommandLine.arguments
@@ -26,9 +27,10 @@ enum CurtainMain {
 ///   open --close--> closed (gamma zero, sleep guard) --hardware input / menu--> unlocking
 ///   unlocking --auth ok--> open;  unlocking --20 s idle--> closed
 ///   any state --system lock / sleep / quit / signal / safety timeout--> open
+///   cleanup refused after guardian F --> recovering --guardian exit--> open / process exit
 @MainActor
 final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    enum State: String { case open, closed, unlocking }
+    enum State: String { case open, closed, unlocking, recovering }
 
     private static let unlockIdleTimeout: TimeInterval = 20
     /// After the user cancels Touch ID, ignore hand movement for a while: cancelling means "not now".
@@ -47,8 +49,11 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hardwareMonitor: HardwareActivityMonitor!
     /// Swallows physical input while closed; falls back to `hardwareMonitor` without Accessibility.
     private let inputGuard = InputGuard()
+    private let recoveryWatchdog = RecoveryWatchdog()
     private var lastIdleRestart = Date.distantPast
     private var sessionWatcher: SessionWatcher?
+    private var screenObserver: NSObjectProtocol?
+    private var spaceObserver: NSObjectProtocol?
     private var statusItem: NSStatusItem!
     private var closeItem: NSMenuItem!
     private var unlockItem: NSMenuItem!
@@ -60,7 +65,7 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Development-only upper bound for a closed curtain; `defaults write local.zjf.curtain devSafetyTimeoutSeconds 0` disables it.
     private var safetyTimeout: TimeInterval {
-        UserDefaults.standard.object(forKey: "devSafetyTimeoutSeconds") as? Double ?? 300
+        UserDefaults.standard.object(forKey: "devSafetyTimeoutSeconds") as? Double ?? 0
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -70,7 +75,7 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
             source.setEventHandler {
                 MainActor.assumeIsolated {
-                    self.forceOpen(reason: "signal \(number)")
+                    guard self.forceOpen(reason: "signal \(number)") else { return }
                     NSApp.terminate(nil)
                 }
             }
@@ -104,6 +109,18 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sessionWatcher = SessionWatcher { [weak self] reason in
             self?.forceOpen(reason: reason)
         }
+        recoveryWatchdog.onFailure = { [weak self] in self?.forceOpen(reason: "watchdog-lost") }
+        blackout.onFailure = { [weak self] in self?.forceOpen(reason: "gamma-protection-lost") }
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.environmentChanged(reason: "display-configuration-changed", displaysChanged: true) }
+        }
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.environmentChanged(reason: "active-space-changed", displaysChanged: false) }
+        }
         buildStatusItem()
         log("launched pid=\(getpid()) safetyTimeout=\(safetyTimeout)")
     }
@@ -111,7 +128,13 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         forceOpen(reason: "terminate")
         sessionWatcher?.invalidate()
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
         log("terminated")
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        forceOpen(reason: "terminate-request") ? .terminateNow : .terminateCancel
     }
 
     // MARK: Menu
@@ -162,7 +185,7 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func unlockFromMenu() { beginUnlock(trigger: "menu") }
 
     @objc private func quit() {
-        forceOpen(reason: "quit")
+        guard forceOpen(reason: "quit") else { return }
         NSApp.terminate(nil)
     }
 
@@ -177,14 +200,31 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func close() {
         guard state == .open else { return }
         BackdropArt.prepare() // render the unlock-screen wallpaper while nobody is waiting for it
-        sleepGuard.acquire()
-        blackout.start()
+        guard recoveryWatchdog.start() else {
+            guard forceOpen(reason: "watchdog-start-failed") else { return }
+            showCloseFailure("故障恢复保护未能启动。请重新安装 Curtain 后再试。")
+            return
+        }
+        guard sleepGuard.acquire() else {
+            guard forceOpen(reason: "sleep-guard-start-failed") else { return }
+            showCloseFailure("无法阻止显示器自动睡眠，请稍后重试。")
+            return
+        }
+        guard blackout.start() else {
+            guard forceOpen(reason: "gamma-start-failed") else { return }
+            if blackout.startFailure == .ownershipUnavailable {
+                showCloseFailure("无法取得幕布控制权。请确认没有其他 Curtain 或实验进程正在使用幕布，再重试。")
+            } else {
+                showCloseFailure("无法确认所有显示器均已遮挡，已恢复显示。请检查外接显示器或显示驱动。")
+            }
+            return
+        }
         if !inputGuard.setMode(.block) {
             hardwareMonitor.start() // still wake on mouse input, without blocking
         }
         if safetyTimeout > 0 {
             safetyTimer = Timer.scheduledTimer(withTimeInterval: safetyTimeout, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated { self?.forceOpen(reason: "dev-safety-timeout") }
+                MainActor.assumeIsolated { _ = self?.forceOpen(reason: "dev-safety-timeout") }
             }
         }
         ignoreHardwareUntil = Date().addingTimeInterval(Self.closeGrace)
@@ -200,23 +240,37 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if Date().timeIntervalSince(lastIdleRestart) > 1 { restartIdleTimer() }
             // The tap also sees clicks on Curtain's own controls; only clicks elsewhere retry Touch ID.
             if isClick, !unlockUI.controlsContainMouse() { unlockUI.hardwareClick() }
-        case .open:
+        case .open, .recovering:
             break
         }
     }
 
     private func beginUnlock(trigger: String) {
-        guard state == .closed else { return }
+        guard state == .closed, !blackout.isProtectionFailed else { return }
         unlockFromMenuSession = trigger == "menu"
         setState(.unlocking, trigger)
-        unlockUI.show(autoBiometrics: !unlockFromMenuSession) { [weak self] in
-            guard let self, self.state == .unlocking else { return }
+        let shown = unlockUI.show(autoBiometrics: !unlockFromMenuSession) { [weak self] in
+            guard let self, self.state == .unlocking else { return false }
+            guard self.unlockUI.displayLayoutIsCurrent else {
+                self.ignoreHardwareUntil = Date().addingTimeInterval(Self.closeGrace)
+                self.relock(reason: "display-configuration-changed-before-show")
+                return false
+            }
+            guard self.recoveryWatchdog.permitsUnlockPresentation() else {
+                self.forceOpen(reason: "watchdog-presentation-denied")
+                return false
+            }
             self.blackout.stop() // backdrop already covers the desktop
             // Physical input reaches the unlock screen from now on; until here it stays swallowed,
             // so the waking click cannot land on an app hidden behind the backdrop.
             if self.inputGuard.isActive { self.inputGuard.setMode(.observe) }
+            return true
         }
-        restartIdleTimer()
+        if shown {
+            restartIdleTimer()
+        } else if state == .unlocking {
+            setState(.closed, "unlock-ui-unavailable")
+        }
     }
 
     private func restartIdleTimer() {
@@ -232,33 +286,70 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard state == .unlocking else { return }
         idleTimer?.invalidate()
         idleTimer = nil
-        blackout.start() // zero gamma before removing the backdrop
+        guard blackout.start() else { // zero gamma before removing the backdrop
+            forceOpen(reason: "gamma-relock-failed")
+            return
+        }
         if inputGuard.isActive { inputGuard.setMode(.block) }
         unlockUI.hide()
         setState(.closed, reason)
     }
 
+    private func environmentChanged(reason: String, displaysChanged: Bool) {
+        log("environment-change reason=\(reason) state=\(state.rawValue)")
+        if state == .unlocking {
+            // AppKit may also notify for a color/profile change; unchanged geometry still covers.
+            if displaysChanged, unlockUI.displayLayoutIsCurrent { return }
+            // Old frames/Space membership no longer prove coverage. Return to the display pipeline
+            // before removing old windows; next wake builds the UI from a fresh screen snapshot.
+            ignoreHardwareUntil = Date().addingTimeInterval(Self.closeGrace)
+            relock(reason: reason)
+        } else if state == .closed, displaysChanged {
+            blackout.refresh(reason: reason)
+        }
+    }
+
+    private func showCloseFailure(_ detail: String) {
+        log("close-failed \(detail)")
+        let alert = NSAlert()
+        alert.messageText = "无法拉上幕布"
+        alert.informativeText = detail
+        alert.runModal()
+    }
+
     private func unlocked(method: String) {
         guard state == .unlocking else { return }
-        finishOpen()
+        guard finishOpen() else { return }
         setState(.open, "unlocked method=\(method)")
     }
 
-    private func forceOpen(reason: String) {
-        guard state != .open else { return }
-        finishOpen()
-        setState(.open, "forced reason=\(reason)")
+    @discardableResult
+    private func forceOpen(reason: String) -> Bool {
+        let wasOpen = state == .open
+        guard finishOpen() else { return false }
+        if !wasOpen { setState(.open, "forced reason=\(reason)") }
+        return true
     }
 
-    private func finishOpen() {
+    private func finishOpen() -> Bool {
+        guard recoveryWatchdog.stop() else {
+            idleTimer?.invalidate()
+            idleTimer = nil
+            safetyTimer?.invalidate()
+            safetyTimer = nil
+            if inputGuard.isActive { inputGuard.setMode(.block) }
+            if state != .recovering { setState(.recovering, "watchdog-recovery-committed") }
+            return false
+        }
         idleTimer?.invalidate()
         idleTimer = nil
         safetyTimer?.invalidate()
         safetyTimer = nil
         inputGuard.stop()
-        hardwareMonitor.stop()
+        hardwareMonitor?.stop()
         blackout.stop()
         if unlockUI.isShowing { unlockUI.hide() }
         sleepGuard.release()
+        return true
     }
 }

@@ -1,8 +1,8 @@
 # 菜单栏应用
 
-状态：第一版第 1–4 步已实现并编译（2026-11-05）。第 2 步实机：拉上后黑屏、防睡眠生效；因当时没有解锁界面，用户无法进入系统，由终端 SIGTERM 恢复。解锁界面、硬件事件过滤、Touch ID/密码、20 秒回黑尚未实机验证。需求见 [产品需求](../requirements.md)。
+状态：第一版菜单栏、解锁、本地输入拦截已实现；本地 Touch ID、取消冷却、20 秒回黑、Ctrl+Cmd+Q 和 UU 菜单密码解锁已实测。2026-11-06 接入心跳守护，默认取消 300 秒限制；新版本验收与待测范围见[验证记录](../verification.md)。需求见 [产品需求](../requirements.md)。
 
-源码：[CurtainApp.swift](../../Sources/App/CurtainApp.swift)、[SystemGuards.swift](../../Sources/App/SystemGuards.swift)，共享 [GammaBlackout.swift](../../Sources/Shared/GammaBlackout.swift)。构建：`./scripts/build.sh` 生成 ad-hoc 签名的 `build/Curtain.app`（`LSUIElement`，不在 Dock 显示，bundle id `local.zjf.curtain`）。日志：`~/Library/Logs/Curtain/curtain.log`。
+源码：[CurtainApp.swift](../../Sources/App/CurtainApp.swift)、[SystemGuards.swift](../../Sources/App/SystemGuards.swift)，共享 [GammaBlackout.swift](../../Sources/Shared/GammaBlackout.swift)。构建：`./scripts/build.sh` 生成 `build/Curtain.app`（优先 Apple Development 签名，回退 ad-hoc；`LSUIElement`，不在 Dock 显示，bundle id `local.zjf.curtain`）。日志：`~/Library/Logs/Curtain/curtain.log`。
 
 ## 状态与菜单
 
@@ -11,6 +11,7 @@
 | 拉开（默认） | “拉上幕布”可用 | 无遮挡，不影响输入 |
 | 拉上 | “解锁…”可用；退出不可用 | gamma 清零、持有防显示器睡眠断言、监听硬件输入 |
 | 解锁中 | 都不可用 | 先画全屏黑色背景窗口（鼠标穿透），再恢复 gamma；中间显示认证面板，自动发起 Touch ID |
+| 恢复中（recovering） | 都不可用 | 守护已提交故障恢复；保留仍有效曲线、lease 和背景窗口，暂停 gamma 巡检及解锁计时，等待系统锁屏/进程结束；守护退出后可统一清理 |
 
 “退出 Curtain”先拉开再退出。点击“拉上幕布”后延迟 0.3 秒，等菜单收起再黑屏。
 
@@ -22,9 +23,26 @@
 - Touch ID 弹窗点“取消”：视为暂不解锁，立即回到拉上状态；之后 3 秒内忽略硬件输入（点取消时手还在触控板上），3 秒后再动鼠标重新唤出。选“输入密码”、多次失败或被系统关闭：保留面板，点击面板外任意处重新发起 Touch ID。
 - 成功：移除窗口、释放防睡眠、停止监听，`NSApp.hide` 把焦点交还原应用。
 
+## Space 与多显示器（2026-11-06 复查修正）
+
+- 黑屏本身是显示管线 gamma，没有属于某个 Space 的窗口；独立心跳守护也没有窗口。已有的单屏全屏验证不能外推为所有 Space/外屏通过。
+- 解锁界面仍是窗口，保留窗口遮罩在过渡动画中可能被移走的已知风险。收到普通 Space/原生全屏的 active-Space 通知时立即尝试回黑并取消认证，但通知可能晚于动画开始，**不承诺解锁界面期间零闪露**。
+- 解锁时使用同一份屏幕快照为各屏建立背景；唯一认证面板放在鼠标所在屏幕，无匹配时才选主屏。无可用屏幕则不恢复 gamma。
+- 在恢复 gamma 前重新核对在线显示器 ID、AppKit 屏幕 ID/位置/尺寸/缩放；解锁期间拓扑变化也立即尝试回黑（2 秒唤醒宽限），下次再按新布局创建窗口。仅颜色配置通知、几何布局与在线列表未变时不取消解锁。
+- 任一显示器无法清零/读回，回黑失败时直接拉开并清理，不保留“部分黑屏但状态显示已拉上”。防睡眠断言创建失败同样拒绝拉上。
+- 密码异步校验和错误冷却回调必须仍属于原密码框实例，防止旧解锁界面的结果进入新一轮；Touch ID 继续用 LAContext 身份校验。
+
+现场状态：修正版单屏两轮原生全屏进出通过；内置屏与实体外屏的 1920×1080 镜像组合，gamma 普通 Space A→B→A 遮挡通过；同一镜像组合两次解锁界面 Space 变化后自动回黑、再 Touch ID 解锁通过，用户未见闪露。扩展桌面、HDR 和热插拔第一帧待测；日志时间从收到通知起算，肉眼通过不代表零帧暴露。
+
+`scripts/install.sh` 只读取当前 PID 本次启动后的状态，忽略已结束实例遗留的 closed；多实例或状态不明时拒绝替换，正常退出最多等待 5 秒。不得在幕布拉上时重启应用。
+
 ## 强制拉开
 
-系统锁屏（`com.apple.screenIsLocked`）、系统将要睡眠、显示器睡眠、快速切换用户：立即拉开，系统锁屏/登录界面可见（需求 F8）；系统解锁后不自动重新拉上。另有 SIGINT/SIGTERM、退出（仅拉开状态可点）、开发版安全超时（默认 300 秒；`defaults write local.zjf.curtain devSafetyTimeoutSeconds <秒>`，0 关闭）。进程崩溃时系统自动恢复 gamma。忽略 SIGHUP。
+系统锁屏（`com.apple.screenIsLocked`）、系统将要睡眠、显示器睡眠、快速切换用户：立即拉开，系统锁屏/登录界面可见（需求 F8）；系统解锁后不自动重新拉上。另有 SIGINT/SIGTERM、退出（仅拉开状态可点）。2026-11-06 起默认不再 300 秒自动拉开，改由[独立心跳守护](recovery-watchdog.md)保护 closed/unlocking 会话；守护未就绪则不拉上，守护意外退出则拉开。主线程约 10 秒无心跳时，守护先请求系统锁屏，再结束 Curtain。开发调试可显式设置 `devSafetyTimeoutSeconds` 正数恢复限时。进程崩溃时系统自动恢复 gamma。忽略 SIGHUP。
+
+若独立守护已提交故障恢复，正常解锁/退出、SIGTERM 和系统中断的清理都先检查撤销结果；收到 `F` 时暂缓恢复曲线/退出，等待锁屏和进程结束。守护随后异常退出且主线程已恢复时，清理重新允许执行。守护不主动暂停主进程，避免把临时无响应变成永久暂停。
+
+gamma 的运行失败、首次拉上失败和回黑失败均通过同一清理入口；组件失败时不提前恢复任何曲线。初次拉上即便还没把状态从 open 改为 closed，也要完整清理部分设置的 gamma。清理被 F 拒绝时转 recovering，不再误报 open/closed、重新唤醒或展示失败后“已恢复”的提示；已有输入 tap 转 block，背景窗口保留。解锁 UI 的 ready 回调返回是否批准呈现，F 拒绝后不恢复 gamma 或弹 Touch ID。
 
 ## 待做
 

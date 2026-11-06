@@ -73,7 +73,8 @@ final class OverlayController: NSObject, NSApplicationDelegate {
         if configuration.gamma {
             let blackout = GammaBlackout()
             gammaBlackout = blackout
-            blackout.start()
+            blackout.onFailure = { [weak self] in self?.stop(reason: "gamma-protection-lost", exitCode: 1) }
+            if !blackout.start() { stop(reason: "gamma-start-failed", exitCode: 1) }
         } else if !configuration.noOverlay {
             rebuildWindows()
             screenObserver = NotificationCenter.default.addObserver(
@@ -107,11 +108,12 @@ final class OverlayController: NSObject, NSApplicationDelegate {
         log("overlays-visible count=\(windows.count)")
     }
 
-    private func stop(reason: String) {
+    private func stop(reason: String, exitCode: Int32 = 0) {
         guard !stopping else { return }
         stopping = true
         log("stopping reason=\(reason)")
         cleanup()
+        if exitCode != 0 { exit(exitCode) }
         NSApp.terminate(nil)
     }
 
@@ -134,6 +136,7 @@ final class OverlayController: NSObject, NSApplicationDelegate {
     }
 }
 
+signal(SIGPIPE, SIG_IGN)
 if CommandLine.arguments.contains("--help") {
     print("Usage: curtain [--duration 1...300] [--exclude-capture | --gamma] [--no-overlay]")
     print("--gamma: zero display gamma instead of covering windows; restored on exit.")
