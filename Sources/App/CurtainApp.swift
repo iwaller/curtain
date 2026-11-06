@@ -50,6 +50,9 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Swallows physical input while closed; falls back to `hardwareMonitor` without Accessibility.
     private let inputGuard = InputGuard()
     private let recoveryWatchdog = RecoveryWatchdog()
+    private let updater = Updater()
+    private let permissionGuide = PermissionGuide()
+    private let permissions = AccessibilityPermissionMonitor()
     private var lastIdleRestart = Date.distantPast
     private var sessionWatcher: SessionWatcher?
     private var screenObserver: NSObjectProtocol?
@@ -58,6 +61,10 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var closeItem: NSMenuItem!
     private var unlockItem: NSMenuItem!
     private var guardWarningItem: NSMenuItem!
+    private var updateItem: NSMenuItem!
+    private var aboutItem: NSMenuItem!
+    private var permissionItem: NSMenuItem!
+    private weak var aboutPanel: NSWindow?
     private var safetyTimer: Timer?
     private var idleTimer: Timer?
     private var signals: [DispatchSourceSignal] = []
@@ -111,6 +118,14 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         recoveryWatchdog.onFailure = { [weak self] in self?.forceOpen(reason: "watchdog-lost") }
         blackout.onFailure = { [weak self] in self?.forceOpen(reason: "gamma-protection-lost") }
+        updater.canUpdate = { [weak self] in self?.state == .open }
+        updater.onStateChange = { [weak self] in self?.refreshMenu() }
+        permissionGuide.canPresent = { [weak self] in self?.state == .open && self?.updater.isBusy == false }
+        permissions.onChange = { [weak self] trusted in
+            guard let self else { return }
+            self.refreshMenu()
+            if self.state == .open { self.permissionGuide.refresh(trusted: trusted) }
+        }
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -122,19 +137,28 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MainActor.assumeIsolated { self?.environmentChanged(reason: "active-space-changed", displaysChanged: false) }
         }
         buildStatusItem()
+        permissions.start()
+        if !permissions.isTrusted, !UserDefaults.standard.bool(forKey: "didShowAccessibilityGuide") {
+            UserDefaults.standard.set(true, forKey: "didShowAccessibilityGuide")
+            permissionGuide.show(trusted: false)
+        }
         log("launched pid=\(getpid()) safetyTimeout=\(safetyTimeout)")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         forceOpen(reason: "terminate")
         sessionWatcher?.invalidate()
+        permissions.stop()
+        permissionGuide.dismiss()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
         log("terminated")
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        forceOpen(reason: "terminate-request") ? .terminateNow : .terminateCancel
+        guard forceOpen(reason: "terminate-request") else { return .terminateCancel }
+        if updater.cancelForTermination({ NSApp.reply(toApplicationShouldTerminate: true) }) { return .terminateLater }
+        return .terminateNow
     }
 
     // MARK: Menu
@@ -150,6 +174,13 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guardWarningItem = NSMenuItem(title: "未拦截键盘鼠标：需要在系统设置中给 Curtain 开启辅助功能", action: nil, keyEquivalent: "")
         guardWarningItem.isEnabled = false
         menu.addItem(guardWarningItem)
+        permissionItem = NSMenuItem(title: "权限设置…", action: #selector(showPermissionGuide), keyEquivalent: "")
+        permissionItem.target = self
+        menu.addItem(permissionItem)
+        menu.addItem(.separator())
+        aboutItem = NSMenuItem(title: "关于 Curtain", action: #selector(showAbout), keyEquivalent: "")
+        updateItem = NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
+        [aboutItem, updateItem].forEach { $0.target = self; menu.addItem($0) }
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出 Curtain", action: #selector(quit), keyEquivalent: "")
         quit.target = self
@@ -159,8 +190,13 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func refreshMenu() {
-        closeItem.isEnabled = state == .open
+        closeItem.isEnabled = state == .open && !updater.isBusy
         unlockItem.isEnabled = state == .closed
+        aboutItem.isEnabled = state == .open && !updater.isBusy
+        permissionItem.isEnabled = state == .open && !updater.isBusy
+        permissionItem.title = permissions.isTrusted ? "权限设置…" : "允许拦截本地输入…"
+        updateItem.isEnabled = state == .open && !updater.isBusy
+        updateItem.title = updater.isBusy ? "正在检查或更新…" : "检查更新…"
         guardWarningItem.isHidden = state == .open || inputGuard.isActive
         // Quitting restores the screen, so it needs the same authentication as unlocking.
         statusItem.menu?.items.last?.isEnabled = state == .open
@@ -184,6 +220,39 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func unlockFromMenu() { beginUnlock(trigger: "menu") }
 
+    @objc private func showAbout() {
+        guard state == .open, !updater.isBusy else { return }
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
+        if let commit = Bundle.main.object(forInfoDictionaryKey: "CurtainCommit") as? String {
+            let style = NSMutableParagraphStyle()
+            style.alignment = .center
+            options[.credits] = NSAttributedString(string: "构建提交 \(commit)", attributes: [
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style,
+            ])
+        }
+        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
+        NSApp.activate()
+        NSApp.orderFrontStandardAboutPanel(options: options)
+        // AppKit owns/reuses the standard panel. Retain only its identity; never iterate
+        // NSApp.windows to hide utility UI, since that also contains NSStatusBarWindow.
+        // Becoming key is asynchronous: capture the NSPanel created by this call instead.
+        if aboutPanel == nil {
+            aboutPanel = NSApp.windows.first { $0 is NSPanel && !existingWindows.contains(ObjectIdentifier($0)) }
+        }
+    }
+
+    @objc private func checkForUpdates() {
+        guard state == .open else { return }
+        permissionGuide.dismiss()
+        updater.checkForUpdates()
+    }
+
+    @objc private func showPermissionGuide() {
+        permissions.refresh()
+        permissionGuide.show(trusted: permissions.isTrusted)
+    }
+
     @objc private func quit() {
         guard forceOpen(reason: "quit") else { return }
         NSApp.terminate(nil)
@@ -198,7 +267,9 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func close() {
-        guard state == .open else { return }
+        guard state == .open, !updater.isBusy else { return }
+        permissionGuide.dismiss()
+        aboutPanel?.orderOut(nil)
         BackdropArt.prepare() // render the unlock-screen wallpaper while nobody is waiting for it
         guard recoveryWatchdog.start() else {
             guard forceOpen(reason: "watchdog-start-failed") else { return }

@@ -398,3 +398,22 @@ M1 不通过完整验收，不进入产品功能。下一步应在已确认观�
 - 同一新增脚本将生产 CLI 仅替换后端构造，实际运行原 start/failure/cleanup/exit 流程：首次部分设置失败、运行中枚举失败均回滚一次并退出 1。组合输出 `artifacts/code-review/fix-regressions.log`，逐场景日志 `artifacts/recovery-gamma-tests/`。
 
 本轮保留全部已有工作区修改；未安装或重启正在运行的应用，未修改实体 gamma、未请求真实锁屏，未新增现场 GUI 验收。构建产物为待部署修正版，既有全屏/镜像现场记录仍对应当时版本；扩展模式、HDR、热插拔首帧、整夜运行继续待测。
+
+## 2026-11-06：更新、关于、辅助功能引导
+
+接续 `artifacts/update-review/handoff.md` 的菜单/版本半成品，保留 e693b28 故障恢复实现；参考同级 Barlet，只读参考源码，没有修改参考项目。新增手动更新器、包校验与隔离原子交换、系统关于面板和可暂缓的辅助功能引导。契约见[应用维护](subsystems/app-maintenance.md)。
+
+验证结果：
+
+- `./scripts/build.sh` 通过，无新增编译警告；生成 `build/Curtain.app`、嵌套 CurtainWatchdog、实验 CLI 和 `build/Curtain.zip`。`codesign --verify --deep --strict build/Curtain.app` 通过。构建元数据读回 `0.1.0`、git 提交数 `3`、`e693b28-dirty`，dirty 检测包括新增未跟踪文件。
+- `python3 scripts/test-updates.py` 共 56 项检查通过，使用 build/update-tests 内的隔离应用。包含数字版本/稳定发布解析、HTTPS 同源链接、真实 Apple Development 签名 ZIP 经系统 tar 解压后主包及嵌套签名仍有效；错误 bundle ID、不同发布版本、不高于当前的包、其他 Team 条件、ad-hoc、缺少/篡改 helper、篡改主包、过高系统要求均被拒绝。没有调用当前应用的更新安装流程。
+- 恶意包覆盖 `..`、绝对路径、符号链接、硬链接和其他根目录，均在生成解压目录前拒绝。最终交换的隐私状态拒绝、已取消任务、缺少目标路径的 OS 交换失败均保留旧应用；重启准备回调失败会交换回旧目录；成功交换则旧版保留在 candidate 路径。只改测试目录，不改 /Applications。
+- 权限轮询替身验证授权/撤销各通知一次，不创建 tap；禁止呈现时不创建权限窗口，禁止更新时不开始网络工作。这不等同真实授权拖放/权限撤销或完整菜单验收。
+- 中途审查发现通配隐藏 `NSApp.windows` 会同时隐藏 `NSStatusBarWindow`，破坏 UU 菜单解锁。已删除该写法，生产仅隐藏明确持有的关于/权限窗口。独立原生 AppKit 探针真实确认：keyWindow 在标准关于调用后可能仍为空；捕获该调用新建的 NSPanel 后，隐藏两种辅助窗口时状态栏仍 `isVisible=true`。探针临时图标与窗口均已清理；它是窗口所有权性质检查，不冒充 Computer Use 坐标点击或 UU 解锁验收。
+- `python3 scripts/test-watchdog.py`、`./scripts/test-display-gamma.sh`、`python3 scripts/test-recovery-gamma.py` 均通过；沿用锁屏替身与模拟 gamma，未改实体显示、未触发真实锁屏。`git diff --check` 通过。
+- 主审独立 PackageAudit 补验：生产 `Curtain.zip` 解压后主包及嵌套签名通过；发布版本不符、主程序篡改均被拒绝。此结果来自独立审查，不替代真实网络安装。
+- 主审 GUI 尝试：不同 bundle id、独立日志的隔离副本启动正常；Codex `cua_repl` 分别按路径和 bundle id 读取窗口，两次均报 `server error -10005 timeoutReached`。未取得可用窗口状态，**GUI 验收仍待测，不能记为通过**。测试副本已 TERM 清理，原安装进程未重启，没有拉幕或触发系统锁屏。
+
+原始输出：`artifacts/update-review/final-build.log`、`final-updates.log`、`utility-window.log`、`watchdog.log`、`display-gamma.log`、`recovery-gamma.log`。原生探针为同目录 `UtilityWindowProbe.swift`。
+
+发布阻塞与未验范围：当前没有 Curtain remote；此前对同服务器 admin/curtain 的只读查询为 404（交接证据 `curtain-release-repo.json`），本轮没有创建仓库或发布。配置入口已接入，404 不会当作最新版；真实服务检查、联网下载、安装后自动重启、应用完整菜单、权限拖入/系统设置与新代码下 UU 菜单解锁均待主审/现场复核。保留所有当前修改，未提交、推送、发布、安装或重启正在使用的应用。

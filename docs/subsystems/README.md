@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | 黑色遮罩与生命周期 | [privacy-overlay.md](privacy-overlay.md) | [GammaBlackout.swift](../../Sources/Shared/GammaBlackout.swift)、[DisplayGamma.swift](../../Sources/Shared/DisplayGamma.swift)、[GammaLease.swift](../../Sources/Shared/GammaLease.swift)、[POC](../../Sources/POC/main.swift) |
 | 菜单栏应用 | [menu-bar-app.md](menu-bar-app.md) | [CurtainApp.swift](../../Sources/App/CurtainApp.swift)、[SystemGuards.swift](../../Sources/App/SystemGuards.swift) |
+| 更新、关于与权限引导 | [app-maintenance.md](app-maintenance.md) | [Updater.swift](../../Sources/App/Updater.swift)、[UpdatePackage.swift](../../Sources/App/UpdatePackage.swift)、[PermissionGuide.swift](../../Sources/App/PermissionGuide.swift) |
 | 本地输入拦截 | [input-guard.md](input-guard.md) | [InputGuard.swift](../../Sources/App/InputGuard.swift)、[InputProbe.swift](../../Sources/App/InputProbe.swift) |
 | 心跳守护与故障锁屏 | [recovery-watchdog.md](recovery-watchdog.md) | [RecoveryWatchdog.swift](../../Sources/App/RecoveryWatchdog.swift)、[Watchdog.swift](../../Sources/Watchdog/Watchdog.swift) |
 | Computer Use 兼容性验证 | [computer-use-validation.md](computer-use-validation.md) | [测试页](../../fixtures/click-test.html)、[验证记录](../verification.md) |

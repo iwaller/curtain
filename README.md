@@ -22,6 +22,18 @@ open build/Curtain.app          # 菜单栏应用（开发版）
 
 测试页面：[fixtures/click-test.html](fixtures/click-test.html)。GUI 验证使用现有 Computer Use；操作步骤、清理和证据见 [验证记录](docs/verification.md)。
 
+## 更新、关于和权限
+
+菜单“关于 Curtain”显示版本、构建号和提交号。首次缺少辅助功能权限会说明用途，可暂缓；菜单“允许拦截本地输入…”可重新打开引导，点击打开系统设置后将窗口中的 Curtain.app 拖入列表并开启。缺权限仍可遮挡画面，但不拦截实体输入；授权变化在下次拉幕时应用，不自动重启。
+
+“检查更新…”只由用户手动触发，确认后才下载、校验同开发者及嵌套守护签名、替换并重启。幕布拉上/解锁/故障恢复期间不能更新，更新进行时不能拉幕；交换前可取消。ad-hoc 构建提供手动发布页，不自动安装。
+
+构建同时生成 `build/Curtain.zip`（已签名应用），用于将来的发布附件。发布时先手动维护 `Resources/Info.plist` 中的 `CFBundleShortVersionString`，用与当前版本相同 Team 的 Apple Development/开发者证书构建，在发布源建立匹配数字标签（如 `v0.2.0`）的非草稿、非预发布版本，并上传同名 `Curtain.zip`。构建号自动取 git 提交数，提交号包含未跟踪文件的 dirty 状态。
+
+发布源在 Info.plist 的 `CurtainReleasesAPIURL` / `CurtainReleasesPageURL` 配置。目前按同服务器 `admin/curtain` 路径接入，此前只读预检为 404，尚未创建仓库或发布版本，因此真实在线更新仍待发布源就绪；404 会显示“尚无可用发布”，不会误报最新版。本轮不包含建远端、发布或安装。
+
+隔离回归：`python3 scripts/test-updates.py`（先运行 build.sh）。签名验证：`codesign --verify --deep --strict build/Curtain.app`。实现、边界与验收范围见[应用维护](docs/subsystems/app-maintenance.md)。
+
 ## 阅读入口
 
 - [产品需求梳理](docs/requirements.md)：菜单栏、隐私屏、密码/Touch ID 解锁、UU 冲突与分阶段。

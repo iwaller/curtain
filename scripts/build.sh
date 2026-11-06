@@ -23,10 +23,23 @@ codesign --force --timestamp=none --sign "$identity" "$app/Contents/Helpers/Curt
 $swiftc_common -framework AppKit -framework IOKit -framework ApplicationServices \
   Sources/Shared/*.swift Sources/App/*.swift -o "$app/Contents/MacOS/Curtain"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+# Include untracked source files in dirty detection (git diff alone misses them).
+if git rev-parse --git-dir >/dev/null 2>&1; then
+    commit=$(git rev-parse --short HEAD)
+    if [[ -n $(git status --porcelain --untracked-files=normal) ]]; then
+        commit="$commit-dirty"
+    fi
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(git rev-list --count HEAD)" \
+        -c "Add :CurtainCommit string $commit" "$app/Contents/Info.plist"
+fi
 # Layered Liquid Glass icon (Icon Composer format) -> Assets.car for macOS 26+, Curtain.icns for macOS 15.
 mkdir -p "$app/Contents/Resources"
 xcrun actool "$PWD/Resources/Curtain.icon" --compile "$PWD/$app/Contents/Resources" --platform macosx \
   --minimum-deployment-target "$min_macos" --app-icon Curtain \
   --output-partial-info-plist "$PWD/build/icon-partial.plist" >/dev/null
 codesign --force --timestamp=none --sign "$identity" "$app" >/dev/null
-print "Built build/curtain-poc and $app (signed: $identity)"
+codesign --verify --deep --strict "$app"
+rm -f build/Curtain.zip
+# libarchive tar stores the exact signed tree; no Finder metadata/symlink payload is needed.
+/usr/bin/tar --format zip -cf build/Curtain.zip -C build Curtain.app
+print "Built build/curtain-poc, $app and build/Curtain.zip (signed: $identity)"

@@ -75,6 +75,12 @@ final class InputGuard {
     }
 
     private func create() -> Bool {
+        // The dedicated guide explains permission before opening Settings. Do not let tap
+        // creation request a second system prompt during an already-dark privacy session.
+        guard AXIsProcessTrusted() else {
+            log("input-guard unavailable accessibility=false")
+            return false
+        }
         var mask: CGEventMask = 0
         for type in Self.maskTypes { mask |= 1 << CGEventMask(type) }
         let info = Unmanaged.passUnretained(self).toOpaque()
