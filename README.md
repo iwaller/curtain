@@ -16,6 +16,14 @@ Curtain keeps your desktop session active so tools such as Codex Computer Use ca
 - Prevent idle display sleep while active.
 - Recover from an unresponsive app with an independent watchdog.
 
+## Install a release
+
+Supports **Apple Silicon (arm64) only**, on macOS 15 or later.
+
+Download `Curtain-arm64.dmg` from [GitHub Releases](https://github.com/iwaller/curtain/releases), open it, and drag **Curtain** onto **Applications**. Eject the disk image and launch Curtain from Applications. The ZIP is also available for manual installation. Releases use a local code signature and are not notarized by Apple. If macOS blocks the first launch, go to **System Settings → Privacy & Security → Open Anyway**, then confirm **Open**. This option may be restricted on managed Macs.
+
+Use **Check for Updates…** to download and install newer versions from [GitHub Releases](https://github.com/iwaller/curtain/releases). Updates are verified with an independent publisher signature, including ad-hoc signed releases. Accessibility permission is separate and may need to be granted again after an update.
+
 ## Build and run
 
 Requires an Apple silicon Mac, macOS 15 or later, and Xcode with command-line tools selected. Tested on macOS 26; other versions remain unverified.
@@ -28,6 +36,8 @@ open build/Curtain.app
 ```
 
 The build uses an available Apple Development signing identity, or falls back to ad-hoc signing. No third-party libraries are required.
+
+To build a release without a signing certificate, run `CURTAIN_SIGN_IDENTITY=- ./scripts/build.sh`. The archive is written to `build/Curtain.zip`. Publishers should use the [release procedure](docs/operations/releasing.md) to produce its required update signature.
 
 ## Usage
 

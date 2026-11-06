@@ -16,6 +16,14 @@ Curtain 保持当前桌面会话可用，让 Codex Computer Use 等工具继续�
 - 拉幕期间阻止显示器空闲睡眠。
 - 独立守护进程在应用无响应时执行恢复。
 
+## Install a release
+
+Supports **Apple Silicon (arm64) only**, on macOS 15 or later.
+
+Download `Curtain-arm64.dmg` from [GitHub Releases](https://github.com/iwaller/curtain/releases), open it, and drag **Curtain** onto **Applications**. Eject the disk image and launch Curtain from Applications. The ZIP is also available for manual installation. Releases use a local code signature and are not notarized by Apple. If macOS blocks the first launch, go to **System Settings → Privacy & Security → Open Anyway** (系统设置 → 隐私与安全性 → 仍要打开), then confirm **Open**. This option may be restricted on managed Macs.
+
+Use **Check for Updates…** to download and install newer versions from [GitHub Releases](https://github.com/iwaller/curtain/releases). Updates are verified with an independent publisher signature, including ad-hoc signed releases. Accessibility permission is separate and may need to be granted again after an update.
+
 ## 构建与运行
 
 需要 Apple 芯片 Mac、macOS 15 或更高版本，以及已选定命令行工具的 Xcode。已在 macOS 26 上测试，其他版本尚未验证。
@@ -28,6 +36,8 @@ open build/Curtain.app
 ```
 
 构建优先使用可用的 Apple Development 签名证书，没有时使用 ad-hoc 签名。不需要第三方库。
+
+To build a release without a signing certificate, run `CURTAIN_SIGN_IDENTITY=- ./scripts/build.sh`. The archive is written to `build/Curtain.zip`. Publishers should use the [release procedure](docs/operations/releasing.md) to produce its required update signature.
 
 ## 使用
 

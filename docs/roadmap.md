@@ -2,6 +2,8 @@
 
 ## 2026-11-06 当前继续点
 
+Direct distribution now uses Ed25519-authenticated updates from GitHub Releases (`iwaller/curtain`). Local package verification and installer regressions are covered; a published release, real network installation/restart, Gatekeeper approval, and Accessibility retention on another Mac remain acceptance work. See the [release procedure](operations/releasing.md).
+
 更新、关于、辅助功能引导已接续实现，隔离包验证与原生状态栏保留探针通过；完整维护流程 GUI 和真实发布下载安装待复核。尚无可用 Curtain 发布源，不将其描述为已通过在线更新；详见[应用维护](subsystems/app-maintenance.md)。现有隐私路线的继续点如下。
 
 菜单栏、本地输入拦截与解锁已实现；独立心跳守护及故障时先请求系统锁屏已接入，菜单栏默认取消 5 分钟自动拉开。正常解锁不锁系统、超过 5 分钟保持、真实无响应后锁屏恢复、修正版单屏全屏、镜像双屏普通 Space 遮挡与解锁界面 Space 变化回黑均有验证，范围见[验证记录](verification.md)。接下来验证扩展桌面、热插拔、HDR、输入拦截下 UU 完整操作、UU 隐私屏和整夜运行；不把镜像双屏结果外推到所有显示器组合。下文 M0–M3 为早期阶段划分。

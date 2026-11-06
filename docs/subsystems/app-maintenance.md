@@ -4,19 +4,36 @@
 
 源码：[Updater.swift](../../Sources/App/Updater.swift)、[UpdatePackage.swift](../../Sources/App/UpdatePackage.swift)、[AppVersion.swift](../../Sources/App/AppVersion.swift)、[PermissionGuide.swift](../../Sources/App/PermissionGuide.swift)，菜单集成在 [CurtainApp.swift](../../Sources/App/CurtainApp.swift)。
 
+## Distribution
+
+Apple Silicon (arm64) is the only supported architecture. The build explicitly targets arm64 and requires a native Apple Silicon build host. DMG packaging checks that both the app and watchdog contain only arm64 code. The installer name includes the architecture; update asset names remain `Curtain.zip` and `Curtain.zip.sig` because there is a single supported architecture.
+
+Decision confirmed by the user on 2026-11-06: distribute `Curtain-arm64.dmg` for initial installation, with `Curtain.zip` and `Curtain.zip.sig` for in-app updates, without App Store submission, Developer ID distribution signing, or Apple notarization. A local code signature is not Apple approval; downloaded copies may be blocked by Gatekeeper on first launch.
+
+The existing build prefers an available Apple Development identity to preserve local Accessibility authorization across rebuilds, and falls back to ad-hoc signing. `CURTAIN_SIGN_IDENTITY=- ./scripts/build.sh` explicitly produces an ad-hoc package without a signing certificate. Both the app and its watchdog are signed before packaging. Changing signing identity or rebuilding an ad-hoc app may require Accessibility authorization again.
+
+Installation: open `Curtain-arm64.dmg`, drag `Curtain.app` onto its Applications shortcut, eject the volume, and open the installed app. The ZIP remains an alternative for manual installation. `package-dmg.sh` copies only the signed app and an `/Applications` symlink into a compressed, read-only HFS+ image; the updater continues to consume the ZIP, whose archive contract rejects symlinks. The image contains neither signing tools nor private keys. `package-release.sh` creates all three release attachments from the same build; a successful rebuild removes stale DMG/signature outputs.
+
+If macOS blocks the launch, open System Settings → Privacy & Security → Open Anyway, authenticate if prompted, and confirm Open. Availability and wording depend on macOS and device policy; approval on a separate Mac with a quarantined download remains unverified. Do not require users to disable Gatekeeper globally.
+
+The updater authenticates releases using Ed25519 independently of Apple signing. Ad-hoc and local Apple Development builds both support the existing check → consent → automatic download/install/restart flow. First-launch approval, Gatekeeper policy, and Accessibility authorization remain separate macOS decisions; cross-Mac installation and authorization retention still need live testing. Release procedure: [releasing.md](../operations/releasing.md).
+
 ## 更新契约
 
 - 仅菜单“检查更新…”触发检查；没有后台定时检查、静默下载或自动强制拉开幕布。发现新版后由用户选择下载安装、稍后或打开发布页面。
 - 只有 open 可检查/安装。整个检查、确认、下载、校验期间禁止新拉幕（包括菜单延迟调用）；closed、unlocking、recovering 禁止更新、关于和权限入口。原子交换前同步再次检查状态和取消标志。
-- `CurtainReleasesAPIURL` 与 `CurtainReleasesPageURL` 在 Info.plist 配置。仅 HTTPS、无用户名/密码/fragment 且同服务器与端口的页面/附件/重定向可用。源服务器变更需同时修改配置；不绕过 TLS 验证。
+- Release metadata comes from `https://api.github.com/repos/iwaller/curtain/releases/latest`; pages and initial attachment URLs must belong to `https://github.com/iwaller/curtain/releases`. Only attachment downloads may redirect to the exact HTTPS hosts `release-assets.githubusercontent.com` or `objects.githubusercontent.com`, on port 443. Credentials and fragments are rejected. Other configured servers retain the same-origin policy. TLS verification remains enabled.
 - HTTP 404 表示尚无可用发布，显示失败原因和发布页入口，不能提示“已是最新版”。成功解析稳定版本后，仅发布版本号不高于当前版本时提示最新版。草稿、预发布和非数字版本拒绝。
-- 附件唯一且名为 `Curtain.zip`；下载上限 256 MiB。系统 libarchive tar 解压：仅允许 `Curtain.app` 内普通文件与目录，拒绝绝对路径、`..`、符号/硬链接、其他根目录，最多 10,000 项及 1 GiB 展开体积；默认安全解压，不使用 `-P`。本应用包不需要框架符号链接，未来包结构变化须一起调整契约与测试。
-- 校验当前运行代码的 Team ID；ad-hoc 无开发者身份时拒绝自动安装并提供手动发布页。新包及嵌套 CurtainWatchdog 必须满足同 Team 的 Apple 签名要求，全部架构/嵌套签名完整；bundle id、入口、发布标签与包版本匹配，且确为更新。检查最低系统版本与主程序/helper 的本机 CPU 架构。
+- Each release must contain exactly one `Curtain.zip` (at most 256 MiB) and one `Curtain.zip.sig` (at most 4 KiB). The latter contains a Base64-encoded, 64-byte Ed25519 signature over the exact ZIP bytes. Missing, malformed, oversized, mismatched, or tampered signatures fail before archive parsing or extraction.
+- 系统 libarchive tar 解压：仅允许 `Curtain.app` 内普通文件与目录，拒绝绝对路径、`..`、符号/硬链接、其他根目录，最多 10,000 项及 1 GiB 展开体积；默认安全解压，不使用 `-P`。本应用包不需要框架符号链接，未来包结构变化须一起调整契约与测试。
+- The publisher public key is maintained in `Resources/UpdatePublicKey.txt`, validated and compiled into the executable as `UpdateTrust.publicKey` by the build. Candidate packages and release metadata cannot replace the running verifier's trust root. The build also records it in `CurtainUpdatePublicKey` for publisher tooling and continuity checks; updates must retain the same key. App and helper code signatures still require strict, nested, all-architecture integrity, but no Apple Team ID. Bundle ID, entry point, release version, increasing version, minimum macOS version, and both CPU architectures remain checked. Key rotation is not automatic; changing or losing the key requires manual installation of a new trust root.
 - 下载、解压、签名校验不改当前应用。staging 在应用同卷；`renamex_np(RENAME_SWAP)` 一次交换新旧目录。交换失败保留原应用；重启信号发送失败时尝试交换回原应用；极端回滚失败保留 staging 中旧版本并明确提示手动重开，不能按普通失败删除旧版。
 - 取消在最终交换前有效。后台解压/校验结束后再次检查取消，不继续安装；取消和失败均清理 staging/进度窗口并解除忙碌。退出会取消任务并等待清理后回复 AppKit。已经交换成功属于提交点，不再提供取消按钮。
 - 独立短命 shell 只有收到交换成功信号后才等待旧进程退出（最多 30 秒），随后打开新版并清理旧版；交换失败/EOF 不启动新版。等待超时不强制杀进程，留下暂存版本，下次手动启动生效。新版从 open 启动，不保存或恢复 closed 会话。
 
 ## 关于与窗口所有权
+
+The About panel uses the English label `Commit` in both supported languages and has no personal-use notice.
 
 “关于 Curtain”使用系统标准面板，展示应用名、短版本、构建号，附提交短哈希（含未提交文件时加 `-dirty`）。构建号为 git 提交数，发布短版本仍手动维护。
 

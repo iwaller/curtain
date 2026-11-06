@@ -2,16 +2,21 @@ import AppKit
 
 private final class UpdateNetworkPolicy: NSObject, URLSessionTaskDelegate, URLSessionDownloadDelegate, @unchecked Sendable {
     let source: UpdateSource
-    init(source: UpdateSource) { self.source = source }
+    let downloadLimit: Int64
+    init(source: UpdateSource, downloadLimit: Int64 = 256 * 1024 * 1024) {
+        self.source = source
+        self.downloadLimit = downloadLimit
+    }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(request.url.map(source.accepts) == true ? request : nil)
+        let accepts: (URL) -> Bool = task is URLSessionDownloadTask ? source.acceptsDownload : source.accepts
+        completionHandler(request.url.map(accepts) == true ? request : nil)
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        if totalBytesWritten > 256 * 1024 * 1024 || totalBytesExpectedToWrite > 256 * 1024 * 1024 {
+        if totalBytesWritten > downloadLimit || totalBytesExpectedToWrite > downloadLimit {
             downloadTask.cancel()
         }
     }
@@ -56,6 +61,7 @@ final class Updater {
                       let current = AppVersion(currentVersionText) else { throw UpdateFailure.invalidRelease }
                 let source = try UpdateSource(api: api, page: page)
                 let config = URLSessionConfiguration.ephemeral
+                config.httpAdditionalHeaders = ["User-Agent": "Curtain/\(currentVersionText)"]
                 config.timeoutIntervalForRequest = 15
                 config.timeoutIntervalForResource = 180
                 let network = URLSession(configuration: config, delegate: UpdateNetworkPolicy(source: source), delegateQueue: nil)
@@ -88,9 +94,9 @@ final class Updater {
                 guard choice == .alertFirstButtonReturn else { return }
                 guard canUpdate() else { throw UpdateFailure.privacySession }
                 let url = try release.packageURL(source: source)
+                let signatureURL = try release.signatureURL(source: source)
                 let app = Bundle.main.bundleURL
                 try UpdatePackage.checkLocation(app)
-                guard let team = UpdatePackage.currentTeamID else { throw UpdateFailure.untrusted }
                 let directory = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
                                                             appropriateFor: app, create: true)
                 staging = directory
@@ -100,17 +106,28 @@ final class Updater {
                 defer { try? FileManager.default.removeItem(at: download) }
                 try Task.checkCancellation()
                 guard (downloadResponse as? HTTPURLResponse)?.statusCode == 200,
-                      downloadResponse.url.map(source.accepts) == true,
+                      downloadResponse.url.map(source.acceptsDownload) == true,
                       (try download.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max) <= 256 * 1024 * 1024 else {
                     throw UpdateFailure.network
                 }
                 let zip = directory.appendingPathComponent("Curtain.zip")
                 try FileManager.default.moveItem(at: download, to: zip)
+                let signatureNetwork = URLSession(configuration: config,
+                                                  delegate: UpdateNetworkPolicy(source: source, downloadLimit: 4096), delegateQueue: nil)
+                defer { signatureNetwork.invalidateAndCancel() }
+                let (signatureDownload, signatureResponse) = try await signatureNetwork.download(from: signatureURL)
+                defer { try? FileManager.default.removeItem(at: signatureDownload) }
+                try Task.checkCancellation()
+                guard (signatureResponse as? HTTPURLResponse)?.statusCode == 200,
+                      signatureResponse.url.map(source.acceptsDownload) == true,
+                      (try signatureDownload.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max) <= 4096 else {
+                    throw UpdateFailure.invalidSignature
+                }
+                let signature = try Data(contentsOf: signatureDownload)
                 window.setStatus(String(localized: "Verifying Update…"))
                 let candidate = try await Task.detached {
-                    let candidate = try UpdatePackage.unpack(zip, into: directory)
-                    try UpdatePackage.verify(candidate, expected: version, current: current, team: team)
-                    return candidate
+                    try UpdatePackage.prepare(zip, signature: signature, into: directory,
+                                              expected: version, current: current, publicKey: UpdateTrust.publicKey)
                 }.value
                 try Task.checkCancellation()
                 // Prepare the restart helper before the swap. It will do nothing unless the

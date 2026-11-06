@@ -469,6 +469,13 @@ M1 不通过完整验收，不进入产品功能。下一步应在已确认观�
 
 确认正在运行的实例为 open 后，沿用本轮用户授权安装重启；输出 `menu-install.log`，安装签名及主程序与构建产物哈希一致。未修改系统授权、拉幕或锁屏；真实授权/撤销后的菜单外观仍待用户现场确认。本次修改尚未提交。
 
+## 2026-11-06: Direct distribution without notarization
+
+The user chose signed direct downloads with manual first-launch approval. Updated requirements, architecture, the maintenance contract, and both README files with installation instructions and the existing explicit ad-hoc build option. No build or updater source changes were needed: the build already supports ad-hoc signing, and the updater requires manual installation when a developer identity cannot be authenticated.
+
+Validation: inspected the build script and production signature verification code; the existing `build/Curtain.app` has an Apple Development signature, and `codesign --verify --deep --strict build/Curtain.app` passed. `git diff --check` passed. This documents the distribution decision and checks the existing artifact; it does not establish ad-hoc release installation or first-launch Gatekeeper approval on another Mac. No rebuild, installation, restart, publication, or system-security setting change was performed.
+
+
 ## 2026-11-06: English and Simplified Chinese interface
 
 Implemented native app localization following Barlet: English source keys with `String(localized:)`, `en.lproj` / `zh-Hans.lproj` resources, English development region, and language resources copied into the signed app and release ZIP. macOS handles preferred and per-app language selection; an unsupported language with no supported preference falls back to English. This is one bilingual app bundle.
@@ -486,6 +493,29 @@ Validation completed:
 These are compilation, isolated native-component and offscreen-render checks, not end-to-end Computer Use or physical-display acceptance. Actual per-app language changes through System Settings, real unlock/Touch ID dialogs, update dialogs against a live server, and remote operation in the localized build remain unverified. No installed app was replaced or restarted; no system permissions, gamma, or system lock state were changed. No commit or release was created. Existing unrelated worktree changes were preserved.
 
 Logs: `artifacts/localization/{build,signature,localizations,updates,interactions,previews}.log`. Localization contract: [App maintenance](subsystems/app-maintenance.md#localization).
+
+
+## 2026-11-06: About panel copy cleanup
+
+The About commit label now reads `Commit` in both English and Simplified Chinese. Removed the `Personal use` copyright metadata so the standard About panel no longer receives that notice.
+
+Validation: `./scripts/build.sh` (including code-signature verification), `python3 scripts/test-localizations.py`, and `git diff --check` passed. Inspected packaged app and ZIP metadata to confirm the notice is absent, and both packaged language tables resolve the commit label to English. These are build/resource checks; the live About panel was not reopened for GUI acceptance. Existing concurrent edits were preserved. No installation, restart, commit, or release was performed.
+
+## 2026-11-06: Ed25519 updates from GitHub Releases
+
+Implemented publisher-authenticated updates for ad-hoc builds, using `https://api.github.com/repos/iwaller/curtain/releases/latest` and the corresponding GitHub release page. Each release requires `Curtain.zip` and `Curtain.zip.sig`. The running executable pins the public key at build time; the detached Ed25519 signature covers the entire archive and is checked before archive parsing. Strict app/helper code integrity, increasing version, release/version agreement, key continuity, minimum OS/CPU, safe extraction, cancellation, privacy-state refusal, atomic swap and rollback remain enforced. Apple Team ID is no longer the publisher trust root. GitHub attachment redirects are limited to its exact HTTPS release storage hosts; metadata stays scoped to the configured repository. ZIP and signature downloads have independent size limits.
+
+Added native CryptoKit key generation/signing tools and a release packager. Generated the initial production key locally; only the public key is a source resource. The private file is in ignored `artifacts/release-keys/`, mode 0600 inside a mode-0700 directory, and was not printed, committed or packaged. Key generation refuses to overwrite existing outputs; signing rejects a private key that differs from the archive's embedded public key. Backup and release steps are in [releasing.md](operations/releasing.md).
+
+Validation completed:
+
+- `./scripts/build.sh` passed with the existing local Apple Development identity. `./scripts/package-release.sh artifacts/release-keys/curtain-update.private-key` then built the final ad-hoc app/helper, ZIP and production signature. `codesign --verify --deep --strict build/Curtain.app` passed.
+- `python3 scripts/test-updates.py`: all 82 update/permission checks passed, plus publisher-tool checks for private-file permissions, refusal to overwrite keys, and signing-key mismatch. Tests use independent keys. Coverage includes parsing the actual GitHub release schema, repository/download-host restrictions, valid Ed25519-authenticated ad-hoc archives, invalid/missing/oversized signatures, wrong public key, tampered ZIP rejected without extraction output, code/helper tampering, version and key mismatch, hostile archives, cancellation, privacy-state refusal and rollback.
+- `python3 scripts/test-localizations.py` passed for all 67 packaged English/Chinese keys and native language fallback. The new signature error and revised integrity error are localized.
+- A separate audit compiled the production `UpdatePackage` verifier and pinned public key, then authenticated and safely extracted the actual production-signed ZIP, validating ad-hoc app/helper integrity, version and key continuity. The audit used no private key and did not launch Curtain.
+- Archive inspection confirmed the configured GitHub source/public key and absence of private-key filenames or bytes. The private file's permissions and Git-ignore status were verified. `git diff --check` passed.
+
+Logs: `artifacts/update-signing-{build,release,tests,localizations,audit}.log`; independent audit source/binary: `artifacts/update-signing-audit/`. These checks do not establish a real GitHub download/install/restart or cross-Mac Gatekeeper/Accessibility acceptance. No installed app was replaced or restarted, no GitHub release was published, and no gamma, system-lock or permission changes were made. Existing concurrent edits were preserved.
 
 ## 2026-11-06: Memory review and unlock wallpaper optimization
 
@@ -505,3 +535,23 @@ The measured rendering peak fell by 42.92 MiB (30.9%); this does not claim the s
 Validation: `./scripts/build.sh` passed, including strict/deep code-signature verification; `./scripts/test-backdrop-art.sh` passed image-format/orientation/opaque-corner checks, missing/corrupt fallback, within-session reuse, clear-before-completion and five overlapping session generations. `git diff --check` passed. Tests directly exercise production art code and background publication without creating windows, changing gamma, requesting authentication or locking the system. Source inspection confirms cache cleanup remains after the existing guardian permission check. Existing unrelated updater/distribution worktree edits were preserved.
 
 Raw evidence and the baseline renderer are in `artifacts/memory-review/`: `live-{vmmap,footprint,top,leaks}.txt`, `benchmark.json`, `render-{before,after}-*.log`, `comparison.png`, `backdrop-tests.log` and `build.log`. No installed app was replaced or restarted. Updated full-app idle/peak memory after real unlock, multi-display rendering, HDR/wide-gamut wallpaper appearance and overnight stability remain unverified. This is compilation, component and isolated performance validation, not new physical-display or Computer Use acceptance.
+
+### Memory optimization: authorized rebuild and restart
+
+The user subsequently requested rebuilding and restarting the application. Confirmed installed PID 63388 was open, ran `./scripts/build.sh`, then `./scripts/install.sh`. The new installed process launched at 2026-11-06 10:24:01 UTC as PID 32692, version 0.1.0 (8), build marker `f7855d5-dirty`, and remained open. The build includes the current worktree, including existing update/distribution edits. Strict/deep signature verification passed, and installed app/helper executable SHA-256 hashes matched the build outputs. No privacy session, authentication or system lock was triggered. Startup verification does not establish full-session memory improvements or GUI acceptance. Logs: `artifacts/memory-review/restart-{build,install,verification}.log`.
+
+## 2026-11-06: DMG installer and private-key maintenance
+
+Added `scripts/package-dmg.sh`, which packages only the signed `Curtain.app` and an `/Applications` shortcut in a compressed, read-only HFS+ image. `package-release.sh` now produces `build/Curtain.dmg`, `build/Curtain.zip` and `build/Curtain.zip.sig` from the same build. The DMG serves initial installation; the updater continues to authenticate the ZIP and does not parse or install disk images. Successful builds invalidate stale DMG/signature outputs. Updated distribution requirements, architecture, maintenance contract, READMEs and publishing instructions, including password-manager backup/restore guidance and the distinction between private-file permissions and encryption.
+
+Validation: the full release packager passed using ad-hoc app/helper signatures and the existing production Ed25519 key. `hdiutil verify` passed. Attached the DMG read-only without opening Finder, confirmed its visible root contains only Curtain and the Applications shortcut, verified that shortcut targets `/Applications`, and passed strict/deep code-signature verification on the mounted app. Compared all app files by SHA-256: mounted DMG, build app and update ZIP match exactly. Confirmed the private key has 32 raw bytes / 44 Base64 characters, owner-only permissions, and no private-key paths or bytes in the packaged app. The independent production update verifier accepted the new ZIP/signature. Shell syntax, documentation links and `git diff --check` passed. Detached the temporary volume successfully.
+
+Another concurrent build invalidated the first generated DMG before inspection; regenerated the final release and reran the mounted-image and update-signature checks successfully. Final files are approximately 3.0 MB each for DMG/ZIP, with an 89-byte Base64 signature file. Evidence: `artifacts/dmg-release-build.log`, `artifacts/dmg-validation/{verify,update-signature}.log`; inspection script: `artifacts/dmg-validation/verify.py`.
+
+These are package, mounted-filesystem and signature checks, not Finder drag-and-drop or quarantined-download Gatekeeper acceptance on a separate Mac. No installed app was replaced or launched, no system permissions or display state changed, and no GitHub release was published. The private key was not printed, changed or deleted. Existing concurrent source changes were preserved.
+
+## 2026-11-06: Apple Silicon releases only
+
+The user confirmed Apple Silicon (arm64) as the only supported architecture and requested `Curtain-arm64.dmg` as the installer filename. Builds now target `arm64-apple-macos15.0` explicitly and reject non-native build hosts before compilation. DMG packaging rejects app/helper binaries that contain architectures other than arm64. Renamed the installer output and updated support/distribution documentation; the updater still consumes `Curtain.zip` and `Curtain.zip.sig` because only one architecture is published.
+
+Validation: rebuilt the full ad-hoc release successfully; `lipo -archs` reports exactly arm64 for the CLI, app and watchdog. Mounted the renamed DMG read-only and checked both binary architectures, strict/deep code-signature integrity, the Applications shortcut, and exact app-file agreement with the ZIP/build. Detached the validation volume. The independent production verifier accepted the final ZIP and Ed25519 signature. Shell syntax and `git diff --check` passed. Logs: `artifacts/arm64-{release-build,dmg-verification,update-signature}.log`. No installed app was replaced or restarted and no release was published; Intel/Rosetta hosts and quarantined first-launch behavior were not exercised.

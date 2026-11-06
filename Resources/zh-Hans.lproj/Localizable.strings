@@ -14,7 +14,7 @@
 "Cancelling…" = "正在取消…";
 "Check for Updates…" = "检查更新…";
 "Checking for Updates…" = "正在检查更新…";
-"Commit %@" = "提交 %@";
+"Commit %@" = "Commit %@";
 "Could Not Enable Privacy Screen" = "无法开启隐私屏";
 "Could Not Update Curtain" = "暂时无法更新 Curtain";
 "Could not confirm that all displays are hidden. Display output has been restored. Check your external displays or display drivers." = "无法确认所有显示器均已遮挡，已恢复显示。请检查外接显示器或显示驱动。";
@@ -49,7 +49,7 @@
 "Screen turns black after 20 seconds of inactivity · Esc to cancel" = "20 秒无操作后恢复黑屏 · 按 Esc 取消";
 "Set Up Curtain" = "设置 Curtain";
 "The release information is invalid. Try again later." = "发布信息无效，暂时无法更新。";
-"The update could not be verified as coming from the same developer as Curtain. Install it manually from the release page." = "无法确认更新与当前 Curtain 来自同一开发者，请从发布页面手动安装。";
+"The update package failed its integrity checks. The current app has not been replaced." = "更新包完整性校验失败，当前应用未被替换。";
 "The update does not support this Mac or macOS version." = "更新不支持这台 Mac 或当前 macOS 版本。";
 "The update package is incomplete or does not match the release. The current app has not been replaced." = "更新包不完整或与发布版本不符，当前应用未被替换。";
 "The update was installed, but automatic restart failed. Quit and reopen Curtain manually. The previous version is preserved in a temporary folder." = "更新已替换，但自动重启失败。请退出后手动打开 Curtain；旧版本已保留在临时目录。";
@@ -66,3 +66,5 @@
 "You have version %@. Curtain will restart after installation." = "当前版本为 %@。安装后将重新启动 Curtain。";
 "You're All Set" = "设置完成";
 "unlock the privacy screen" = "解锁隐私屏";
+
+"The update signature is missing or invalid. The current app has not been replaced." = "更新签名缺失或无效，当前应用未被替换。";

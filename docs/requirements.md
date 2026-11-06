@@ -1,6 +1,10 @@
 # 产品需求梳理（Curtain）
 
-个人使用，不上架、不分发：使用本机 ad-hoc 签名，不做公证和商标检查。agent 不限于 Codex，适用于基于截图和模拟输入的 Computer Use 类 agent。
+Platform decision (2026-11-06): support Apple Silicon (arm64) only, on macOS 15 or later.
+
+Distribution decision (2026-11-06): distribute `Curtain-arm64.dmg` for drag-to-Applications installation and a signed `Curtain.zip` for in-app updates, without App Store submission, Developer ID distribution signing, or Apple notarization. Users may need to approve the first launch in macOS Privacy & Security. In-app updates authenticate ZIP archives with an independently maintained Ed25519 key and use GitHub Releases at `iwaller/curtain`. Existing local Apple Development signing remains available; ad-hoc signing does not require a signing certificate. See the [distribution contract](subsystems/app-maintenance.md#distribution).
+
+agent 不限于 Codex，适用于基于截图和模拟输入的 Computer Use 类 agent。
 
 日期：2026-11-04。状态：需求整理，用户已确认第一版取舍（见文末“已决定”）；未实现，技术可行性按条目标注。
 

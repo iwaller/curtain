@@ -6,6 +6,12 @@
 
 Memory review (2026-11-06): unlock wallpaper preparation now uses bounded ImageIO thumbnails and serial rendering; cached art is released after permitted session cleanup, with stale asynchronous results discarded. Isolated rendering peak footprint fell from 139 MiB to 96 MiB on this Mac; this is not a measurement of the updated full application's peak. See [backdrop lifecycle](subsystems/menu-bar-app.md#backdrop-resource-lifecycle-2026-11-06) and [verification](verification.md).
 
+About presentation: the commit label remains English in both supported languages; the personal-use notice is removed. See [app maintenance](subsystems/app-maintenance.md).
+
+Supported platform: Apple Silicon (arm64) on macOS 15 or later. Builds target arm64 explicitly and reject non-native build hosts. Intel and Universal 2 releases are outside the supported scope.
+
+Distribution (2026-11-06): DMG downloads for drag-to-Applications installation, with Ed25519-authenticated ZIP updates and manual first-launch approval; no Developer ID distribution signing or Apple notarization is planned. Existing local signing remains supported. GitHub Releases support in-app installation for ad-hoc builds; see [app maintenance](subsystems/app-maintenance.md#distribution). Gatekeeper installation on a separate Mac remains unverified.
+
 | 能力 | 当前状态 | 归属 |
 | --- | --- | --- |
 | agent 协作规范、需求分析、实验步骤 | 已完成文档 | [AGENTS.md](../AGENTS.md)、[实验方案](poc-plan.md) |
@@ -64,6 +70,8 @@ Codex Computer Use
 组合回归为 `python3 scripts/test-recovery-gamma.py`：使用真实守护管道协议、模拟显示曲线及锁屏替身覆盖上述清理顺序；不修改实体 gamma、不请求真实锁屏。
 
 应用维护由 Updater 管理 open 状态下的手动检查、用户确认、下载和签名校验；UpdatePackage 负责安全解包与同卷原子交换，当前隐私会话绝不为安装而自动拉开。PermissionGuide 只说明并引导辅助功能授权，轮询不改变会话输入模式。构建脚本写版本元数据并输出 Curtain.zip；关于、权限窗口与状态栏窗口分别持有，禁止通配隐藏状态栏。契约及发布源边界见[应用维护](subsystems/app-maintenance.md)。
+
+Updates use a compiled-in Ed25519 public key, verify the detached `Curtain.zip.sig` before unpacking, then validate app/helper code integrity and atomically replace the app. The private release key is never needed by an ordinary build or included in the app. Publishing tools and key backup instructions are documented in [releasing](operations/releasing.md).
 
 ## 修复对照后的状态
 

@@ -1,9 +1,10 @@
 import Foundation
 import Security
 import Darwin
+import CryptoKit
 
 enum UpdateFailure: LocalizedError {
-    case invalidRelease, noRelease, network, invalidPackage, untrusted, incompatible, location, privacySession, restart, rollback
+    case invalidRelease, noRelease, network, invalidPackage, invalidSignature, untrusted, incompatible, location, privacySession, restart, rollback
 
     var errorDescription: String? {
         switch self {
@@ -11,7 +12,8 @@ enum UpdateFailure: LocalizedError {
         case .noRelease: String(localized: "No release is available yet. Check the release page or try again later.")
         case .network: String(localized: "Could not download the update. Check your network connection and try again.")
         case .invalidPackage: String(localized: "The update package is incomplete or does not match the release. The current app has not been replaced.")
-        case .untrusted: String(localized: "The update could not be verified as coming from the same developer as Curtain. Install it manually from the release page.")
+        case .invalidSignature: String(localized: "The update signature is missing or invalid. The current app has not been replaced.")
+        case .untrusted: String(localized: "The update package failed its integrity checks. The current app has not been replaced.")
         case .incompatible: String(localized: "The update does not support this Mac or macOS version.")
         case .location: String(localized: "Curtain cannot be replaced at its current location. Move it to a writable Applications folder and try again, or install the update manually.")
         case .privacySession: String(localized: "Unlock the privacy screen before checking for updates.")
@@ -21,20 +23,60 @@ enum UpdateFailure: LocalizedError {
     }
 }
 
-/// Only HTTPS URLs on the configured server are used, including redirects.
+/// GitHub metadata and initial asset URLs are scoped to the configured repository.
+/// Only asset downloads may redirect to GitHub's dedicated release storage hosts.
 struct UpdateSource: Sendable {
     let api: URL
     let page: URL
+    private let githubRepository: String?
 
     init(api: URL, page: URL) throws {
-        guard Self.isHTTPS(api), Self.isHTTPS(page), Self.sameOrigin(api, page) else {
+        guard Self.isHTTPS(api), Self.isHTTPS(page) else {
             throw UpdateFailure.invalidRelease
+        }
+        if api.host?.lowercased() == "api.github.com" {
+            let parts = page.path.split(separator: "/")
+            guard page.host?.lowercased() == "github.com", (api.port ?? 443) == 443,
+                  (page.port ?? 443) == 443, parts.count == 3, parts[2] == "releases",
+                  api.path == "/repos/\(parts[0])/\(parts[1])/releases/latest" else {
+                throw UpdateFailure.invalidRelease
+            }
+            githubRepository = "\(parts[0])/\(parts[1])"
+        } else {
+            guard Self.sameOrigin(api, page) else { throw UpdateFailure.invalidRelease }
+            githubRepository = nil
         }
         self.api = api
         self.page = page
     }
 
-    func accepts(_ url: URL) -> Bool { Self.isHTTPS(url) && Self.sameOrigin(api, url) }
+    func accepts(_ url: URL) -> Bool {
+        guard Self.isHTTPS(url) else { return false }
+        guard let repository = githubRepository else { return Self.sameOrigin(api, url) }
+        let host = url.host?.lowercased()
+        guard (url.port ?? 443) == 443 else { return false }
+        if host == "api.github.com" { return url.path == "/repos/\(repository)/releases/latest" }
+        return acceptsReleasePage(url)
+    }
+
+    func acceptsReleasePage(_ url: URL) -> Bool {
+        guard let repository = githubRepository else { return accepts(url) }
+        let prefix = "/\(repository)/releases"
+        return Self.isHTTPS(url) && url.host?.lowercased() == "github.com" && (url.port ?? 443) == 443
+            && (url.path == prefix || url.path.hasPrefix(prefix + "/"))
+    }
+
+    func acceptsAsset(_ url: URL) -> Bool {
+        guard let repository = githubRepository else { return accepts(url) }
+        return Self.isHTTPS(url) && url.host?.lowercased() == "github.com" && (url.port ?? 443) == 443
+            && url.path.hasPrefix("/\(repository)/releases/download/")
+    }
+
+    func acceptsDownload(_ url: URL) -> Bool {
+        if acceptsAsset(url) { return true }
+        guard githubRepository != nil, Self.isHTTPS(url), (url.port ?? 443) == 443 else { return false }
+        return ["release-assets.githubusercontent.com", "objects.githubusercontent.com"].contains(url.host?.lowercased() ?? "")
+    }
 
     private static func isHTTPS(_ url: URL) -> Bool {
         url.scheme?.lowercased() == "https" && url.host != nil && url.user == nil
@@ -63,15 +105,24 @@ struct UpdateRelease: Decodable, Sendable {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let release = try decoder.decode(Self.self, from: data)
         guard !release.draft, !release.prerelease, AppVersion(release.tagName) != nil,
-              let page = URL(string: release.htmlUrl), source.accepts(page) else {
+              let page = URL(string: release.htmlUrl), source.acceptsReleasePage(page) else {
             throw UpdateFailure.invalidRelease
         }
         return release
     }
 
     func packageURL(source: UpdateSource) throws -> URL {
-        let matches = assets.filter { $0.name == "Curtain.zip" }
-        guard matches.count == 1, let url = URL(string: matches[0].browserDownloadUrl), source.accepts(url) else {
+        try assetURL(named: "Curtain.zip", source: source)
+    }
+
+    func signatureURL(source: UpdateSource) throws -> URL {
+        do { return try assetURL(named: "Curtain.zip.sig", source: source) }
+        catch { throw UpdateFailure.invalidSignature }
+    }
+
+    private func assetURL(named name: String, source: UpdateSource) throws -> URL {
+        let matches = assets.filter { $0.name == name }
+        guard matches.count == 1, let url = URL(string: matches[0].browserDownloadUrl), source.acceptsAsset(url) else {
             throw UpdateFailure.invalidPackage
         }
         return url
@@ -82,6 +133,29 @@ struct UpdateRelease: Decodable, Sendable {
 /// bundle until the final atomic exchange. Staging must be on the same volume as that bundle.
 enum UpdatePackage {
     static let bundleID = "local.zjf.curtain"
+
+    /// Publisher authentication is independent of Apple's code-signing certificates.
+    /// Always verify the exact archive bytes before invoking an archive parser.
+    static func verifyArchive(_ zip: URL, signature: Data, publicKey: String) throws {
+        guard signature.count <= 4096,
+              let encoded = String(data: signature, encoding: .utf8),
+              let signed = Data(base64Encoded: encoded.trimmingCharacters(in: .whitespacesAndNewlines)), signed.count == 64,
+              let rawKey = Data(base64Encoded: publicKey), rawKey.count == 32,
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: rawKey),
+              let size = try zip.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0, size <= 256 * 1024 * 1024 else {
+            throw UpdateFailure.invalidSignature
+        }
+        let bytes = try Data(contentsOf: zip, options: .mappedIfSafe)
+        guard key.isValidSignature(signed, for: bytes) else { throw UpdateFailure.invalidSignature }
+    }
+
+    static func prepare(_ zip: URL, signature: Data, into staging: URL,
+                        expected: AppVersion, current: AppVersion, publicKey: String) throws -> URL {
+        try verifyArchive(zip, signature: signature, publicKey: publicKey)
+        let candidate = try unpack(zip, into: staging)
+        try verify(candidate, expected: expected, current: current, publicKey: publicKey)
+        return candidate
+    }
 
     static func checkLocation(_ app: URL) throws {
         let values = try app.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
@@ -134,17 +208,15 @@ enum UpdatePackage {
             && !name.contains("\\") && !name.contains(where: { $0.isNewline || $0.asciiValue.map { $0 < 32 } == true })
     }
 
-    static func verify(_ app: URL, expected: AppVersion, current: AppVersion, team: String?) throws {
-        guard let team, !team.isEmpty, team.allSatisfy({ $0.isASCII && $0.isLetter || $0.isASCII && $0.isNumber }) else {
-            throw UpdateFailure.untrusted
-        }
-        try checkSignature(app, identifier: bundleID, team: team)
+    static func verify(_ app: URL, expected: AppVersion, current: AppVersion, publicKey: String) throws {
+        try checkSignature(app, identifier: bundleID)
         let infoURL = app.appendingPathComponent("Contents/Info.plist")
         let data = try Data(contentsOf: infoURL)
         let info = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         guard info?["CFBundleIdentifier"] as? String == bundleID,
               info?["CFBundleExecutable"] as? String == "Curtain",
               info?["CFBundlePackageType"] as? String == "APPL",
+              info?["CurtainUpdatePublicKey"] as? String == publicKey,
               let text = info?["CFBundleShortVersionString"] as? String, let version = AppVersion(text),
               version == expected, version > current else { throw UpdateFailure.invalidPackage }
         let os = ProcessInfo.processInfo.operatingSystemVersion
@@ -156,8 +228,8 @@ enum UpdatePackage {
         let helper = app.appendingPathComponent("Contents/Helpers/CurtainWatchdog")
         guard FileManager.default.isExecutableFile(atPath: executable.path),
               FileManager.default.isExecutableFile(atPath: helper.path) else { throw UpdateFailure.invalidPackage }
-        // Nested signature integrity alone does not constrain the helper's signer identity.
-        try checkSignature(helper, identifier: nil, team: team)
+        // The archive's Ed25519 signature authenticates both binaries, including ad-hoc code.
+        try checkSignature(helper, identifier: nil)
         #if arch(arm64)
         let architecture = "arm64"
         #else
@@ -169,42 +241,20 @@ enum UpdatePackage {
         } catch { throw UpdateFailure.incompatible }
     }
 
-    private static func checkSignature(_ url: URL, identifier: String?, team: String) throws {
+    private static func checkSignature(_ url: URL, identifier: String?) throws {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else {
             throw UpdateFailure.untrusted
         }
-        var text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
-        if let identifier { text += " and identifier \"\(identifier)\"" }
         var requirement: SecRequirement?
-        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess else {
+        if let identifier,
+           SecRequirementCreateWithString("identifier \"\(identifier)\"" as CFString, [], &requirement) != errSecSuccess {
             throw UpdateFailure.untrusted
         }
         let flags = SecCSFlags(rawValue: SecCSFlags.RawValue(kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode))
         guard SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess else {
             throw UpdateFailure.untrusted
         }
-    }
-
-    static func teamID(of app: URL) -> String? {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: SecCSFlags.RawValue(kSecCSSigningInformation)), &info) == errSecSuccess else {
-            return nil
-        }
-        return (info as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
-    }
-
-    /// Derive trust from the running executable, rather than a possibly changed on-disk bundle.
-    static var currentTeamID: String? {
-        var running: SecCode?
-        var code: SecStaticCode?
-        guard SecCodeCopySelf([], &running) == errSecSuccess, let running,
-              SecCodeCopyStaticCode(running, [], &code) == errSecSuccess, let code else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: SecCSFlags.RawValue(kSecCSSigningInformation)), &info) == errSecSuccess else { return nil }
-        return (info as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
     }
 
     /// Cancellation/state checks are synchronous with the swap on the main actor. No await or

@@ -49,7 +49,7 @@
 "Screen turns black after 20 seconds of inactivity · Esc to cancel" = "Screen turns black after 20 seconds of inactivity · Esc to cancel";
 "Set Up Curtain" = "Set Up Curtain";
 "The release information is invalid. Try again later." = "The release information is invalid. Try again later.";
-"The update could not be verified as coming from the same developer as Curtain. Install it manually from the release page." = "The update could not be verified as coming from the same developer as Curtain. Install it manually from the release page.";
+"The update package failed its integrity checks. The current app has not been replaced." = "The update package failed its integrity checks. The current app has not been replaced.";
 "The update does not support this Mac or macOS version." = "The update does not support this Mac or macOS version.";
 "The update package is incomplete or does not match the release. The current app has not been replaced." = "The update package is incomplete or does not match the release. The current app has not been replaced.";
 "The update was installed, but automatic restart failed. Quit and reopen Curtain manually. The previous version is preserved in a temporary folder." = "The update was installed, but automatic restart failed. Quit and reopen Curtain manually. The previous version is preserved in a temporary folder.";
@@ -66,3 +66,5 @@
 "You have version %@. Curtain will restart after installation." = "You have version %@. Curtain will restart after installation.";
 "You're All Set" = "You're All Set";
 "unlock the privacy screen" = "unlock the privacy screen";
+
+"The update signature is missing or invalid. The current app has not been replaced." = "The update signature is missing or invalid. The current app has not been replaced.";

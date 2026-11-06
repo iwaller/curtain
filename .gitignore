@@ -4,3 +4,4 @@ build/
 artifacts/
 *.xcuserstate
 xcuserdata/
+*.private-key
