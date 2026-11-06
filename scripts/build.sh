@@ -34,6 +34,8 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
 fi
 # Layered Liquid Glass icon (Icon Composer format) -> Assets.car for macOS 26+, Curtain.icns for macOS 15.
 mkdir -p "$app/Contents/Resources"
+# Use macOS language selection, including per-app language preferences.
+cp -R Resources/*.lproj "$app/Contents/Resources/"
 xcrun actool "$PWD/Resources/Curtain.icon" --compile "$PWD/$app/Contents/Resources" --platform macosx \
   --minimum-deployment-target "$min_macos" --app-icon Curtain \
   --output-partial-info-plist "$PWD/build/icon-partial.plist" >/dev/null

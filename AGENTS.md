@@ -37,4 +37,7 @@
 
 ## 评审
 
-沿“启动 → 窗口覆盖 → 实体显示 → Computer Use 截图 → 输入 → Space/全屏切换 → 自动退出与清理”检查完整链路。提交说明用 `区域: 用户可见的行为变化`，注明通过和未验证范围。
+沿“启动 → 窗口覆盖 → 实体显示 → Computer Use 截图 → 输入 → Space/全屏切换 → 自动退出与清理”检查完整链路。
+
+- Write all future commit messages and project comments/notes in English.
+- Use `Area: user-visible behavior change` for commit messages, and state what passed validation and what remains unverified in the commit body when applicable.

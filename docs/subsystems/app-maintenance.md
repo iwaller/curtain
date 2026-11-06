@@ -24,15 +24,25 @@
 
 ## 权限契约
 
-- 只引导辅助功能：用于拦截实体输入和唤出解锁界面，不申请屏幕录制等 Barlet 专有权限。未授权首次启动显示说明，可点“稍后设置”；之后始终有菜单入口。
+- 只引导辅助功能：用于拦截实体输入和唤出解锁界面，不申请屏幕录制等 Barlet 专有权限。未授权首次启动显示说明，可点“稍后设置”。菜单参照 Barlet：仅缺权限时显示“允许拦截本地输入…”，授权后隐藏，撤销后重新出现；打开菜单时立即读回权限，旧菜单动作也须重验并拒绝在已授权时重新打开引导。
 - 主窗口参考 Barlet：440 pt 固定宽、32 pt 内容边距、透明隐藏标题栏、一张横向权限卡片。未授权显示“允许”和一句降级说明；已授权只显示绿色勾选“已允许”、下次拉幕生效提示与“完成”，不保留禁用设置按钮、拖放区或未授权文案。macOS 27 使用“设备控制和数据访问”名称。
 - 用户点击卡片“允许”后才打开系统辅助功能页，**保留主窗**，独立 440×104 pt 拖动条由按钮位置沿弧线飞入设置窗口，采用与 Barlet 相同的 0.72 秒阻尼弹簧、缩放和淡入；系统“减少动态效果”开启时直接呈现终态。条内提供返回按钮、单行提示与可拖动的 Curtain 应用行。每 0.5 秒读取前台设置窗口边界以跟随，离开设置后隐藏并停轮询（首次启动最多等 5 秒），重新激活时恢复。不开启第二个 AX 系统提示，不主动修改权限或重启应用。
 - 拖动使用 Barlet 的整行快照及原始 bounds，拖出时原行留空、结束后恢复；不是单个图标从固定原点跟随。拖动期间暂停位置查询和跟随，避免原生拖放 run-loop 内重复抬升/移动面板。切走、返回、收起、授权成功均停止飞入 display link，避免残留动画回调。
-- 返回会重新显示主窗口；关闭主窗、主动收起或授权成功会清理拖动条、计时器和观察者。授权轮询不激活或重新弹出主窗；从菜单再次打开按最新授权状态展示。授权/撤销可在同一个主窗实例中切换，无灰色操作占位。
+- 返回会重新显示主窗口；关闭主窗、主动收起或授权成功会清理拖动条、计时器和观察者。授权轮询不激活或重新弹出主窗；撤销权限后可从恢复显示的菜单入口重新打开。已打开的主窗在授权后显示确认状态；授权/撤销可在同一个主窗实例中切换，无灰色操作占位。
 - 每秒只读查询授权变化，刷新状态；授权/撤销不主动创建、移除或切换当前会话的输入 tap，不恢复 gamma、不弹窗口。下次正常拉幕时重新尝试创建 tap。缺权限时保留“只遮画面、不拦截输入”的降级行为；系统撤销既有 tap 的行为仍由 macOS 决定。
 - 拉幕前收起引导。closed/unlocking/recovering 或更新忙碌时不能显示引导或打开设置。授权后状态若未刷新，可先正常拉开幕布，再手动退出重开；不擅自重启隐私会话。
 
-## 验证
+## Localization
+
+Following Barlet's native localization approach, user-facing strings use English keys with `String(localized:)`. Translations live in `Resources/en.lproj/Localizable.strings` and `Resources/zh-Hans.lproj/Localizable.strings`. `Info.plist` declares English as the development region and lists both supported languages; the build copies these directories before signing and packaging the app.
+
+macOS selects the language using the user's preferred languages or per-app language setting. Unsupported languages fall back to English. There is one app bundle with both languages; no custom language switcher or separate language builds. Menus, setup and permission states, accessibility labels, unlock controls and Touch ID messages, update progress and errors are localized. Release notes retain the publisher's language; technical logs and the experimental CLI remain unchanged.
+
+The primary menu action is “Enable Privacy Screen” / “开启隐私屏”. The unlock date uses the selected app language and a localized date template; the time uses the user's regional format. Permission content resizes when grant/revoke text wraps differently. Changes affect presentation only; authentication, input filtering, gamma control and recovery ordering remain unchanged.
+
+`python3 scripts/test-localizations.py` checks the built app and release archive, interpolation placeholders, native language negotiation (English, Simplified Chinese and unsupported-language fallback), production permission states, and drag instruction width in isolated bundles. `./scripts/render-permissions.sh` renders production permission views under both languages to `artifacts/permission-redesign/{en,zh-Hans}/`. Neither launches the live controller nor modifies permissions or gamma. These checks do not establish end-to-end GUI acceptance.
+
+## Validation
 
 `python3 scripts/test-updates.py` 使用 build 内隔离包，覆盖版本/发布解析、URL、真实开发者签名解压保留、嵌套篡改/错误版本/身份/系统、恶意路径与链接、取消/隐私状态拒绝交换、系统交换失败和重启准备失败回滚、权限轮询及禁止呈现。没有真实更新服务器安装、权限拖放或实体屏幕验收。详细结果见[验证记录](../verification.md)。
 

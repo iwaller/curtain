@@ -170,14 +170,14 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
 
     private static let timeFormat: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "H:mm"
+        f.setLocalizedDateFormatFromTemplate("jm")
         return f
     }()
 
     private static let dateFormat: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "M月d日 EEEE"
+        f.locale = Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+        f.setLocalizedDateFormatFromTemplate("MMMMdEEEE")
         return f
     }()
 
@@ -232,7 +232,7 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
         field.font = .systemFont(ofSize: 13)
         field.textColor = .white
         field.placeholderAttributedString = NSAttributedString(
-            string: remote ? "输入登录密码" : "触控 ID 或输入登录密码",
+            string: remote ? String(localized: "Enter login password") : String(localized: "Touch ID or login password"),
             attributes: [.foregroundColor: NSColor(white: 1, alpha: 0.6), .font: NSFont.systemFont(ofSize: 13)])
         field.target = self
         field.action = #selector(submitPassword)
@@ -271,7 +271,7 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
         let status = label("", size: 12, weight: .medium, color: NSColor(red: 1, green: 0.62, blue: 0.58, alpha: 1))
         status.heightAnchor.constraint(equalToConstant: 16).isActive = true
 
-        let touchID = NSButton(title: "使用触控 ID", image: symbol("touchid", size: 14), target: self,
+        let touchID = NSButton(title: String(localized: "Use Touch ID"), image: symbol("touchid", size: 14), target: self,
                                action: #selector(retryBiometrics))
         touchID.isBordered = false
         touchID.imagePosition = .imageLeading
@@ -281,7 +281,7 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
         touchID.shadow = textShadow()
         touchID.isHidden = !LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
 
-        let footer = label("20 秒无操作自动回到黑屏 · Esc 立即返回", size: 11, weight: .regular,
+        let footer = label(String(localized: "Screen turns black after 20 seconds of inactivity · Esc to cancel"), size: 11, weight: .regular,
                            color: NSColor(white: 1, alpha: 0.55))
 
         let stack = NSStackView(views: [avatar, name, capsule, status, touchID, footer])
@@ -424,7 +424,7 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
 
     private func startBiometrics() {
         let context = LAContext()
-        context.localizedFallbackTitle = "输入密码"
+        context.localizedFallbackTitle = String(localized: "Enter Password")
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
             log("unlock-ui biometrics-unavailable code=\(error?.code ?? 0)")
@@ -433,7 +433,7 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
         }
         biometricContext = context
         statusLabel?.stringValue = ""
-        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "拉开 Curtain 幕布") { success, error in
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: String(localized: "unlock the privacy screen")) { success, error in
             let code = (error as NSError?)?.code ?? 0
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -445,7 +445,7 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
                         log("unlock-ui biometrics-cancelled")
                         self.onCancel?("touch-id-cancelled")
                     } else {
-                        // Fallback (“输入密码”), too many failures, or the system dismissed the prompt:
+                        // Password fallback, too many failures, or the system dismissed the prompt:
                         // keep the controls; a click starts Touch ID again.
                         log("unlock-ui biometrics-failed code=\(code)")
                         self.statusLabel?.stringValue = Self.biometricMessage(code: code)
@@ -459,9 +459,9 @@ final class UnlockUI: NSObject, NSTextFieldDelegate {
     private static func biometricMessage(code: Int) -> String {
         switch code {
         case LAError.userFallback.rawValue, LAError.systemCancel.rawValue, LAError.appCancel.rawValue: ""
-        case LAError.biometryLockout.rawValue: "触控 ID 已暂时锁定，请输入密码"
-        case LAError.authenticationFailed.rawValue: "未能识别指纹，请重试或输入密码"
-        default: "触控 ID 暂不可用，请输入密码"
+        case LAError.biometryLockout.rawValue: String(localized: "Touch ID is locked. Enter your password.")
+        case LAError.authenticationFailed.rawValue: String(localized: "Fingerprint not recognized. Try again or enter your password.")
+        default: String(localized: "Touch ID is unavailable. Enter your password.")
         }
     }
 

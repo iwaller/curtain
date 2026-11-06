@@ -18,7 +18,9 @@ Curtain keeps your desktop session active so tools such as Codex Computer Use ca
 
 ## Build and run
 
-Requires an Apple silicon Mac, macOS 15 or later, and Xcode with command-line tools selected. Tested on macOS 26; other versions remain unverified. The app interface is currently in Chinese.
+Requires an Apple silicon Mac, macOS 15 or later, and Xcode with command-line tools selected. Tested on macOS 26; other versions remain unverified.
+
+Available in English and Simplified Chinese, following your macOS language preferences. You can choose a language for Curtain in **System Settings → General → Language & Region → Applications**. Other languages fall back to English.
 
 ```bash
 ./scripts/build.sh
@@ -30,8 +32,8 @@ The build uses an available Apple Development signing identity, or falls back to
 ## Usage
 
 1. Open Curtain and grant Accessibility permission to enable local input blocking. Without it, only the screen is hidden.
-2. Choose **拉上幕布** (Close curtain) from the menu bar.
-3. Move the mouse or press a key to show the unlock screen, then use Touch ID or your login password. For remote access, choose **解锁…** (Unlock) from the menu.
+2. Choose **Enable Privacy Screen** from the menu bar.
+3. Move the mouse or press a key to show the unlock screen, then use Touch ID or your login password. For remote access, choose **Unlock…** from the menu.
 
 The curtain stays closed until unlocked or interrupted. The unlock screen returns to black after 20 seconds of inactivity. Passwords are verified locally and are not stored.
 

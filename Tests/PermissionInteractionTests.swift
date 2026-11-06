@@ -26,7 +26,7 @@ enum PermissionInteractionTests {
         guide.show(trusted: false)
         guard let window = app.windows.first(where: { $0 is PermissionWindow && $0.isVisible }),
               let content = window.contentView,
-              let allow = buttons(in: content).first(where: { $0.title == "允许" }) else { fatalError("No permission card") }
+              let allow = buttons(in: content).first(where: { $0.title == String(localized: "Allow") }) else { fatalError("No permission card") }
         allow.performClick(nil)
         precondition(opened == 1 && window.isVisible, "Allow must retain the main window")
         print("PASS native Allow action opens the injected Settings endpoint without hiding the main window")

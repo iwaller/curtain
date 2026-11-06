@@ -168,21 +168,27 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
-        closeItem = NSMenuItem(title: "拉上幕布", action: #selector(closeFromMenu), keyEquivalent: "")
-        unlockItem = NSMenuItem(title: "解锁…", action: #selector(unlockFromMenu), keyEquivalent: "")
+        closeItem = NSMenuItem(title: String(localized: "Enable Privacy Screen"), action: #selector(closeFromMenu), keyEquivalent: "")
+        unlockItem = NSMenuItem(title: String(localized: "Unlock…"), action: #selector(unlockFromMenu), keyEquivalent: "")
         [closeItem, unlockItem].forEach { $0.target = self; menu.addItem($0) }
-        guardWarningItem = NSMenuItem(title: "未拦截键盘鼠标：需要在系统设置中给 Curtain 开启辅助功能", action: nil, keyEquivalent: "")
+        let inputWarning: String
+        if #available(macOS 27, *) {
+            inputWarning = String(localized: "Input blocking requires Device Control and Data Access permission")
+        } else {
+            inputWarning = String(localized: "Input blocking requires Accessibility permission")
+        }
+        guardWarningItem = NSMenuItem(title: inputWarning, action: nil, keyEquivalent: "")
         guardWarningItem.isEnabled = false
         menu.addItem(guardWarningItem)
-        permissionItem = NSMenuItem(title: "权限设置…", action: #selector(showPermissionGuide), keyEquivalent: "")
+        permissionItem = NSMenuItem(title: String(localized: "Allow Input Blocking…"), action: #selector(showPermissionGuide), keyEquivalent: "")
         permissionItem.target = self
         menu.addItem(permissionItem)
         menu.addItem(.separator())
-        aboutItem = NSMenuItem(title: "关于 Curtain", action: #selector(showAbout), keyEquivalent: "")
-        updateItem = NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
+        aboutItem = NSMenuItem(title: String(localized: "About Curtain"), action: #selector(showAbout), keyEquivalent: "")
+        updateItem = NSMenuItem(title: String(localized: "Check for Updates…"), action: #selector(checkForUpdates), keyEquivalent: "")
         [aboutItem, updateItem].forEach { $0.target = self; menu.addItem($0) }
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "退出 Curtain", action: #selector(quit), keyEquivalent: "")
+        let quit = NSMenuItem(title: String(localized: "Quit Curtain"), action: #selector(quit), keyEquivalent: "")
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu
@@ -193,10 +199,10 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         closeItem.isEnabled = state == .open && !updater.isBusy
         unlockItem.isEnabled = state == .closed
         aboutItem.isEnabled = state == .open && !updater.isBusy
-        permissionItem.isEnabled = state == .open && !updater.isBusy
-        permissionItem.title = permissions.isTrusted ? "权限设置…" : "允许拦截本地输入…"
+        permissionItem.isHidden = permissions.isTrusted
+        permissionItem.isEnabled = !permissions.isTrusted && state == .open && !updater.isBusy
         updateItem.isEnabled = state == .open && !updater.isBusy
-        updateItem.title = updater.isBusy ? "正在检查或更新…" : "检查更新…"
+        updateItem.title = updater.isBusy ? String(localized: "Update in Progress…") : String(localized: "Check for Updates…")
         guardWarningItem.isHidden = state == .open || inputGuard.isActive
         // Quitting restores the screen, so it needs the same authentication as unlocking.
         statusItem.menu?.items.last?.isEnabled = state == .open
@@ -207,11 +213,14 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             statusItem.button?.title = ""
         } else {
             statusItem.button?.image = nil
-            statusItem.button?.title = state == .open ? "幕" : "幕●"
+            statusItem.button?.title = state == .open ? "○" : "●"
         }
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) { refreshMenu() }
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        permissions.refresh()
+        refreshMenu()
+    }
 
     @objc private func closeFromMenu() {
         // Let the menu finish dismissing before the screen goes dark.
@@ -226,7 +235,7 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let commit = Bundle.main.object(forInfoDictionaryKey: "CurtainCommit") as? String {
             let style = NSMutableParagraphStyle()
             style.alignment = .center
-            options[.credits] = NSAttributedString(string: "构建提交 \(commit)", attributes: [
+            options[.credits] = NSAttributedString(string: String(localized: "Commit \(commit)"), attributes: [
                 .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
                 .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style,
             ])
@@ -250,7 +259,8 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func showPermissionGuide() {
         permissions.refresh()
-        permissionGuide.show(trusted: permissions.isTrusted)
+        guard !permissions.isTrusted else { return }
+        permissionGuide.show(trusted: false)
     }
 
     @objc private func quit() {
@@ -273,20 +283,20 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         BackdropArt.prepare() // render the unlock-screen wallpaper while nobody is waiting for it
         guard recoveryWatchdog.start() else {
             guard forceOpen(reason: "watchdog-start-failed") else { return }
-            showCloseFailure("故障恢复保护未能启动。请重新安装 Curtain 后再试。")
+            showCloseFailure(String(localized: "Recovery protection could not start. Reinstall Curtain and try again."))
             return
         }
         guard sleepGuard.acquire() else {
             guard forceOpen(reason: "sleep-guard-start-failed") else { return }
-            showCloseFailure("无法阻止显示器自动睡眠，请稍后重试。")
+            showCloseFailure(String(localized: "Could not prevent display sleep. Try again later."))
             return
         }
         guard blackout.start() else {
             guard forceOpen(reason: "gamma-start-failed") else { return }
             if blackout.startFailure == .ownershipUnavailable {
-                showCloseFailure("无法取得幕布控制权。请确认没有其他 Curtain 或实验进程正在使用幕布，再重试。")
+                showCloseFailure(String(localized: "Another Curtain app or experiment may be controlling the displays. Close it and try again."))
             } else {
-                showCloseFailure("无法确认所有显示器均已遮挡，已恢复显示。请检查外接显示器或显示驱动。")
+                showCloseFailure(String(localized: "Could not confirm that all displays are hidden. Display output has been restored. Check your external displays or display drivers."))
             }
             return
         }
@@ -383,7 +393,7 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func showCloseFailure(_ detail: String) {
         log("close-failed \(detail)")
         let alert = NSAlert()
-        alert.messageText = "无法拉上幕布"
+        alert.messageText = String(localized: "Could Not Enable Privacy Screen")
         alert.informativeText = detail
         alert.runModal()
     }

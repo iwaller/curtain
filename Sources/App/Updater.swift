@@ -76,13 +76,13 @@ final class Updater {
                 guard let version = AppVersion(release.tagName) else { throw UpdateFailure.invalidRelease }
                 window.orderOut(nil)
                 if version <= current {
-                    _ = showAlert(title: "Curtain 已是最新版本", message: "当前版本为 \(currentVersionText)。", buttons: ["好"])
+                    _ = showAlert(title: String(localized: "Curtain Is Up to Date"), message: String(localized: "You have version \(currentVersionText)."), buttons: [String(localized: "OK")])
                     return
                 }
                 let notes = String((release.body ?? "").prefix(1600)).split(whereSeparator: \.isNewline).prefix(6).joined(separator: "\n")
-                let choice = showAlert(title: "发现 Curtain \(version)",
-                                       message: "当前版本为 \(currentVersionText)。安装后将重新启动 Curtain。\n\n\(notes)",
-                                       buttons: ["下载并安装", "稍后", "打开发布页面"])
+                let choice = showAlert(title: String(localized: "Curtain \(version.description) Is Available"),
+                                       message: String(localized: "You have version \(currentVersionText). Curtain will restart after installation.") + "\n\n" + notes,
+                                       buttons: [String(localized: "Download and Install"), String(localized: "Later"), String(localized: "Open Release Page")])
                 try Task.checkCancellation()
                 if choice == .alertThirdButtonReturn { NSWorkspace.shared.open(URL(string: release.htmlUrl)!); return }
                 guard choice == .alertFirstButtonReturn else { return }
@@ -94,7 +94,7 @@ final class Updater {
                 let directory = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
                                                             appropriateFor: app, create: true)
                 staging = directory
-                window.setStatus("正在下载 Curtain \(version)…")
+                window.setStatus(String(localized: "Downloading Curtain \(version.description)…"))
                 window.present()
                 let (download, downloadResponse) = try await network.download(from: url)
                 defer { try? FileManager.default.removeItem(at: download) }
@@ -106,7 +106,7 @@ final class Updater {
                 }
                 let zip = directory.appendingPathComponent("Curtain.zip")
                 try FileManager.default.moveItem(at: download, to: zip)
-                window.setStatus("正在校验更新…")
+                window.setStatus(String(localized: "Verifying Update…"))
                 let candidate = try await Task.detached {
                     let candidate = try UpdatePackage.unpack(zip, into: directory)
                     try UpdatePackage.verify(candidate, expected: version, current: current, team: team)
@@ -127,13 +127,13 @@ final class Updater {
                     throw error
                 }
                 installed = true
-                window.setStatus("正在重新启动…", cancellable: false)
+                window.setStatus(String(localized: "Restarting…"), cancellable: false)
                 NSApp.terminate(nil)
             } catch {
                 guard !Task.isCancelled else { return }
                 progress?.orderOut(nil)
-                let choice = showAlert(title: "暂时无法更新 Curtain", message: error.localizedDescription,
-                                       buttons: ["好", "打开发布页面"])
+                let choice = showAlert(title: String(localized: "Could Not Update Curtain"), message: error.localizedDescription,
+                                       buttons: [String(localized: "OK"), String(localized: "Open Release Page")])
                 if choice == .alertSecondButtonReturn,
                    let api = infoURL("CurtainReleasesAPIURL"), let page = infoURL("CurtainReleasesPageURL"),
                    let source = try? UpdateSource(api: api, page: page) { NSWorkspace.shared.open(source.page) }
@@ -156,7 +156,7 @@ final class Updater {
             NSApp.abortModal()
             alert.window.orderOut(nil)
         }
-        progress?.setStatus("正在取消…", cancellable: false)
+        progress?.setStatus(String(localized: "Cancelling…"), cancellable: false)
     }
 
     private var currentVersionText: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?" }
@@ -211,12 +211,12 @@ private final class RelaunchAfterUpdate {
 
 private final class UpdateProgressWindow: NSWindow {
     var onCancel: (() -> Void)?
-    private let status = NSTextField(labelWithString: "正在检查更新…")
-    private let cancelButton = NSButton(title: "取消", target: nil, action: nil)
+    private let status = NSTextField(labelWithString: String(localized: "Checking for Updates…"))
+    private let cancelButton = NSButton(title: String(localized: "Cancel"), target: nil, action: nil)
 
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 370, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
-        title = "Curtain 更新"
+        title = String(localized: "Curtain Update")
         isReleasedWhenClosed = false
         cancelButton.target = self
         cancelButton.action = #selector(cancelClicked)

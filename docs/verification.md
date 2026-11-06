@@ -460,3 +460,29 @@ M1 不通过完整验收，不进入产品功能。下一步应在已确认观�
 预览已重新生成并读取 `guide-{light,dark}.png`、`drag-snapshot-light.png`、`flight-middle-light.png`；新增明暗动画起点/中间/终点姿态及拖动快照。生产原生视图和动画实现直接参与渲染；静态姿态仍不是实时时序验收。日志为 `animation-build.log`、`interaction-tests.log`、`updates.log`、`previews.log`，均位于 `artifacts/permission-redesign/`。
 
 沿用用户本轮重新打包/重启授权，确认实例保持 open 后安装并重启修正版；08:46:45 UTC 新 PID 29223，安装版与构建主程序 SHA-256 一致且签名有效。输出 `animation-install.log`。未再次重置权限、拉幕、锁屏或提交代码；真实鼠标拖动、系统列表接收及视觉流畅性仍等待用户复测。
+
+### 权限菜单仅在缺少授权时显示
+
+用户确认采用 Barlet 的条件入口逻辑：缺少辅助功能权限时显示“允许拦截本地输入…”，已有授权则隐藏；授权被撤销后重新出现。菜单打开时立即刷新只读权限状态，原一秒轮询继续处理变化；触发旧菜单动作时再次读取并拒绝在已授权时打开引导。已打开引导的成功确认状态保留，输入 tap 与 gamma 不因菜单刷新而改变。
+
+`./scripts/build.sh`、签名验证、`python3 scripts/test-updates.py` 全部 56 项已有回归、`git diff --check` 通过。输出为 `artifacts/permission-redesign/menu-build.log`、`menu-updates.log`。这是菜单条件的小改动，未新增复述隐藏属性的测试，也未将构建或已有权限轮询回归算作真实菜单 GUI 验收。
+
+确认正在运行的实例为 open 后，沿用本轮用户授权安装重启；输出 `menu-install.log`，安装签名及主程序与构建产物哈希一致。未修改系统授权、拉幕或锁屏；真实授权/撤销后的菜单外观仍待用户现场确认。本次修改尚未提交。
+
+## 2026-11-06: English and Simplified Chinese interface
+
+Implemented native app localization following Barlet: English source keys with `String(localized:)`, `en.lproj` / `zh-Hans.lproj` resources, English development region, and language resources copied into the signed app and release ZIP. macOS handles preferred and per-app language selection; an unsupported language with no supported preference falls back to English. This is one bilingual app bundle.
+
+Localized menus, About commit metadata, permission setup and accessibility labels, unlock/password/Touch ID messages, update progress, and update errors. User-facing terms follow software conventions, including “Enable Privacy Screen” / “开启隐私屏” and “Allow” / “允许”. Permission warnings use the system-version-specific permission name. The unlock date follows the app language; time uses the user's regional format. Permission windows resize after grant/revoke so longer English text remains visible. Updated both READMEs with language selection and current menu labels.
+
+Validation completed:
+
+- `./scripts/build.sh` and `codesign --verify --deep --strict build/Curtain.app` passed.
+- `python3 scripts/test-localizations.py` passed: all 66 translation keys are present in the app and release ZIP, tables and interpolation placeholders match, English and Simplified Chinese resolve through native bundle selection, French falls back to English, production permission states and grant/revoke sizing work, and the single-line drag instruction fits in both languages. A separate source-key audit found no missing or unused translation keys.
+- `python3 scripts/test-updates.py`: all 56 existing update/permission checks passed. `./scripts/test-permission-interactions.sh`: all five existing native interaction regression groups passed, using an inert Settings opener and test-owned windows.
+- `./scripts/render-permissions.sh` rendered both languages in light and dark appearances. Visually inspected the ungranted, granted and drag-guide states in `artifacts/localization/permissions-{light,dark}.png`: text is readable and fits, English explanatory text wraps, and the drag hint stays on one line. Original previews and grant/revoke/animation poses are under `artifacts/permission-redesign/{en,zh-Hans}/`.
+- README local links and `git diff --check` passed.
+
+These are compilation, isolated native-component and offscreen-render checks, not end-to-end Computer Use or physical-display acceptance. Actual per-app language changes through System Settings, real unlock/Touch ID dialogs, update dialogs against a live server, and remote operation in the localized build remain unverified. No installed app was replaced or restarted; no system permissions, gamma, or system lock state were changed. No commit or release was created. Existing unrelated worktree changes were preserved.
+
+Logs: `artifacts/localization/{build,signature,localizations,updates,interactions,previews}.log`. Localization contract: [App maintenance](subsystems/app-maintenance.md#localization).

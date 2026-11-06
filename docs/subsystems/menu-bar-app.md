@@ -6,16 +6,18 @@
 
 ## 状态与菜单
 
-新增“关于 Curtain”“检查更新…”和“权限设置…”（缺授权时为“允许拦截本地输入…”）。仅 open 且无更新任务时可用；更新期间禁止拉幕，退出先取消任务并清理。标准关于面板及权限窗口在拉幕前定向隐藏，不隐藏状态栏菜单。完整契约见[应用维护](app-maintenance.md)。
+The app now supports English and Simplified Chinese using native macOS language selection. The primary action is “Enable Privacy Screen” / “开启隐私屏”; the existing transition and authentication contracts below still apply. See [localization](app-maintenance.md#localization) for resource packaging and validation.
+
+新增“关于 Curtain”“检查更新…”及仅缺辅助功能权限时显示的“允许拦截本地输入…”。授权后隐藏权限入口，撤销后重新出现；打开菜单及触发引导时都重新检查权限。以上入口仅 open 且无更新任务时可用；更新期间禁止拉幕，退出先取消任务并清理。标准关于面板及权限窗口在拉幕前定向隐藏，不隐藏状态栏菜单。完整契约见[应用维护](app-maintenance.md)。
 
 | 状态 | 菜单 | 效果 |
 | --- | --- | --- |
-| 拉开（默认） | “拉上幕布”可用 | 无遮挡，不影响输入 |
+| 拉开（默认） | “开启隐私屏”可用 | 无遮挡，不影响输入 |
 | 拉上 | “解锁…”可用；退出不可用 | gamma 清零、持有防显示器睡眠断言、监听硬件输入 |
 | 解锁中 | 都不可用 | 先画全屏黑色背景窗口（鼠标穿透），再恢复 gamma；中间显示认证面板，自动发起 Touch ID |
 | 恢复中（recovering） | 都不可用 | 守护已提交故障恢复；保留仍有效曲线、lease 和背景窗口，暂停 gamma 巡检及解锁计时，等待系统锁屏/进程结束；守护退出后可统一清理 |
 
-“退出 Curtain”先拉开再退出。点击“拉上幕布”后延迟 0.3 秒，等菜单收起再黑屏。
+“退出 Curtain”先拉开再退出。点击“开启隐私屏”后延迟 0.3 秒，等菜单收起再黑屏。
 
 ## 解锁
 

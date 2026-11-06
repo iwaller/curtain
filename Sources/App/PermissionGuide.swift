@@ -96,14 +96,14 @@ final class PermissionGuide: NSObject, NSWindowDelegate {
 final class PermissionWindow: NSWindow {
     var onAllow: ((CGRect) -> Void)?
     private let permissionRow = PermissionRow()
-    private let heading = NSTextField(labelWithString: "设置 Curtain")
+    private let heading = NSTextField(labelWithString: String(localized: "Set Up Curtain"))
     private let note = PermissionWindow.wrappingLabel("")
     private let doneButton = NSButton()
 
     init(trusted: Bool) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 440, height: 360),
                    styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: true)
-        title = "Curtain 权限设置"
+        title = String(localized: "Curtain Permissions")
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         isMovableByWindowBackground = true
@@ -113,7 +113,7 @@ final class PermissionWindow: NSWindow {
         icon.widthAnchor.constraint(equalToConstant: 64).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 64).isActive = true
         heading.font = .systemFont(ofSize: 20, weight: .bold)
-        let body = Self.wrappingLabel("仅在幕布拉上时保护本地输入。")
+        let body = Self.wrappingLabel(String(localized: "Block keyboard and mouse input while the privacy screen is on."))
         body.font = .systemFont(ofSize: 13)
         permissionRow.onAllow = { [weak self] source in self?.onAllow?(source) }
         permissionRow.widthAnchor.constraint(equalToConstant: 376).isActive = true
@@ -141,10 +141,14 @@ final class PermissionWindow: NSWindow {
 
     func setTrusted(_ trusted: Bool) {
         permissionRow.setTrusted(trusted)
-        heading.stringValue = trusted ? "权限已就绪" : "设置 Curtain"
-        note.stringValue = trusted ? "下次拉上幕布时生效。" : "暂不授权也能遮挡画面，但不会拦截本地输入。"
-        doneButton.title = trusted ? "完成" : "稍后设置"
+        heading.stringValue = trusted ? String(localized: "You're All Set") : String(localized: "Set Up Curtain")
+        note.stringValue = trusted ? String(localized: "Applies the next time you enable the privacy screen.") : String(localized: "Without this permission, the screen is hidden but local input is not blocked.")
+        doneButton.title = trusted ? String(localized: "Done") : String(localized: "Not Now")
         doneButton.keyEquivalent = trusted ? "\r" : "\u{1b}"
+        // Translations can wrap differently when permission is granted or revoked.
+        if let contentView {
+            setContentSize(NSSize(width: 440, height: ceil(contentView.fittingSize.height)))
+        }
     }
 
     @objc private func doneClicked() { close() }
@@ -163,7 +167,7 @@ final class PermissionWindow: NSWindow {
 @MainActor
 private final class PermissionRow: NSView {
     var onAllow: ((CGRect) -> Void)?
-    private let allow = NSButton(title: "允许", target: nil, action: nil)
+    private let allow = NSButton(title: String(localized: "Allow"), target: nil, action: nil)
     private let allowed = NSStackView()
 
     override init(frame: NSRect) {
@@ -176,7 +180,7 @@ private final class PermissionRow: NSView {
         symbol.contentTintColor = .controlAccentColor
         let name = NSTextField(labelWithString: Self.permissionName)
         name.font = .systemFont(ofSize: 13, weight: .semibold)
-        let purpose = NSTextField(labelWithString: "拦截本地键盘和鼠标")
+        let purpose = NSTextField(labelWithString: String(localized: "Block physical keyboard and mouse input"))
         purpose.font = .systemFont(ofSize: 11)
         purpose.textColor = .secondaryLabelColor
         let texts = NSStackView(views: [name, purpose])
@@ -188,7 +192,7 @@ private final class PermissionRow: NSView {
         allow.action = #selector(allowClicked)
         let check = NSImageView(image: NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil) ?? NSImage())
         check.contentTintColor = .systemGreen
-        let text = NSTextField(labelWithString: "已允许")
+        let text = NSTextField(labelWithString: String(localized: "Allowed"))
         text.font = .systemFont(ofSize: 12, weight: .medium)
         text.textColor = .secondaryLabelColor
         allowed.setViews([text, check], in: .leading)
@@ -214,8 +218,8 @@ private final class PermissionRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     private static var permissionName: String {
-        if #available(macOS 27, *) { return "设备控制和数据访问" }
-        return "辅助功能"
+        if #available(macOS 27, *) { return String(localized: "Device Control and Data Access") }
+        return String(localized: "Accessibility")
     }
     func setTrusted(_ trusted: Bool) { allow.isHidden = trusted; allowed.isHidden = !trusted }
     @objc private func allowClicked() {
@@ -461,15 +465,15 @@ final class PermissionDragPanel: NSPanel {
         background.wantsLayer = true
         background.layer?.cornerRadius = 16
         background.layer?.masksToBounds = true
-        let back = NSButton(image: NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "返回权限设置") ?? NSImage(), target: self, action: #selector(backClicked))
+        let back = NSButton(image: NSImage(systemSymbolName: "chevron.left", accessibilityDescription: String(localized: "Back to Permissions")) ?? NSImage(), target: self, action: #selector(backClicked))
         back.bezelStyle = .circular
         back.frame = NSRect(x: 16, y: 20, width: 30, height: 30)
-        back.setAccessibilityLabel("返回权限设置")
+        back.setAccessibilityLabel(String(localized: "Back to Permissions"))
         let arrow = NSImageView(image: NSImage(systemSymbolName: "arrow.up", accessibilityDescription: nil) ?? NSImage())
         arrow.symbolConfiguration = .init(pointSize: 21, weight: .bold)
         arrow.contentTintColor = .controlAccentColor
         arrow.frame = NSRect(x: 60, y: 66, width: 24, height: 26)
-        let hint = NSTextField(labelWithString: "将 Curtain 拖入上方列表，或开启已有开关。")
+        let hint = NSTextField(labelWithString: String(localized: "Drag Curtain into the list above, or turn it on."))
         hint.font = .systemFont(ofSize: 13, weight: .medium)
         hint.textColor = .secondaryLabelColor
         hint.frame = NSRect(x: 94, y: 68, width: 328, height: 22)
@@ -517,7 +521,7 @@ final class PermissionAppDragRow: NSView, NSDraggingSource {
         addSubview(icon)
         addSubview(title)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-        setAccessibilityLabel("Curtain 应用，拖入辅助功能列表")
+        setAccessibilityLabel(String(localized: "Drag Curtain into the permissions list."))
     }
 
     @available(*, unavailable)

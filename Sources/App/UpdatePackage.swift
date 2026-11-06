@@ -7,16 +7,16 @@ enum UpdateFailure: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidRelease: "发布信息无效，暂时无法更新。"
-        case .noRelease: "尚无可用发布，请检查发布页面或稍后再试。"
-        case .network: "无法下载更新，请检查网络连接后重试。"
-        case .invalidPackage: "更新包不完整或与发布版本不符，当前应用未被替换。"
-        case .untrusted: "无法确认更新与当前 Curtain 来自同一开发者，请从发布页面手动安装。"
-        case .incompatible: "更新不支持这台 Mac 或当前 macOS 版本。"
-        case .location: "无法替换当前位置的 Curtain。请将应用放入可写的应用程序文件夹后重试，或手动安装。"
-        case .privacySession: "请先正常解锁并拉开幕布，再检查更新。"
-        case .restart: "无法准备重新启动，已保留当前应用，请稍后重试。"
-        case .rollback: "更新已替换，但自动重启失败。请退出后手动打开 Curtain；旧版本已保留在临时目录。"
+        case .invalidRelease: String(localized: "The release information is invalid. Try again later.")
+        case .noRelease: String(localized: "No release is available yet. Check the release page or try again later.")
+        case .network: String(localized: "Could not download the update. Check your network connection and try again.")
+        case .invalidPackage: String(localized: "The update package is incomplete or does not match the release. The current app has not been replaced.")
+        case .untrusted: String(localized: "The update could not be verified as coming from the same developer as Curtain. Install it manually from the release page.")
+        case .incompatible: String(localized: "The update does not support this Mac or macOS version.")
+        case .location: String(localized: "Curtain cannot be replaced at its current location. Move it to a writable Applications folder and try again, or install the update manually.")
+        case .privacySession: String(localized: "Unlock the privacy screen before checking for updates.")
+        case .restart: String(localized: "Could not prepare to restart. The current app has been kept. Try again later.")
+        case .rollback: String(localized: "The update was installed, but automatic restart failed. Quit and reopen Curtain manually. The previous version is preserved in a temporary folder.")
         }
     }
 }
