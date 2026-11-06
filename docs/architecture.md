@@ -4,6 +4,8 @@
 
 ## 实现状态
 
+Memory review (2026-11-06): unlock wallpaper preparation now uses bounded ImageIO thumbnails and serial rendering; cached art is released after permitted session cleanup, with stale asynchronous results discarded. Isolated rendering peak footprint fell from 139 MiB to 96 MiB on this Mac; this is not a measurement of the updated full application's peak. See [backdrop lifecycle](subsystems/menu-bar-app.md#backdrop-resource-lifecycle-2026-11-06) and [verification](verification.md).
+
 | 能力 | 当前状态 | 归属 |
 | --- | --- | --- |
 | agent 协作规范、需求分析、实验步骤 | 已完成文档 | [AGENTS.md](../AGENTS.md)、[实验方案](poc-plan.md) |

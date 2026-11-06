@@ -430,6 +430,7 @@ final class CurtainController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hardwareMonitor?.stop()
         blackout.stop()
         if unlockUI.isShowing { unlockUI.hide() }
+        BackdropArt.clear()
         sleepGuard.release()
         return true
     }

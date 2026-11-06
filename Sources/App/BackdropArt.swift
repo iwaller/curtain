@@ -1,24 +1,31 @@
 import AppKit
 import CoreImage
+import ImageIO
 
 /// Blurred, dimmed copy of the desktop wallpaper for the unlock screen, in the style of the
 /// macOS 26 lock screen. Only the wallpaper is shown, never windows. Rendering a 4K/6K picture
-/// takes a moment, so it is prepared when the curtain closes and cached per screen size.
+/// takes a moment, so it is prepared when the curtain closes and cached for that session.
 @MainActor
 enum BackdropArt {
     private static var cache: [String: CGImage] = [:]
     private static var pending: Set<String> = []
+    private static var generation: UInt64 = 0
+    // Avoid simultaneous wallpaper decodes on multi-display setups.
+    private static let renderQueue = DispatchQueue(label: "local.zjf.curtain.backdrop", qos: .utility,
+                                                   autoreleaseFrequency: .workItem)
 
     /// Starts rendering art for every screen that has no cached image yet.
     static func prepare() {
         for screen in NSScreen.screens {
             guard let (key, url, size) = request(for: screen), cache[key] == nil, !pending.contains(key) else { continue }
             pending.insert(key)
-            DispatchQueue.global(qos: .utility).async {
+            let generation = generation
+            renderQueue.async {
                 let started = Date()
                 let image = render(url: url, size: size)
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
+                        guard generation == Self.generation else { return }
                         pending.remove(key)
                         if let image { cache[key] = image }
                         log("backdrop-art \(image == nil ? "failed" : "ready") \(url.lastPathComponent) \(Int(size.width))x\(Int(size.height)) ms=\(Int(Date().timeIntervalSince(started) * 1000))")
@@ -26,6 +33,13 @@ enum BackdropArt {
                 }
             }
         }
+    }
+
+    /// Release art on return to open, including results still being rendered for the old session.
+    static func clear() {
+        generation &+= 1
+        cache.removeAll()
+        pending.removeAll()
     }
 
     /// The cached art for `screen`, or nil (callers fall back to a dark gradient).
@@ -41,8 +55,27 @@ enum BackdropArt {
         return ("\(url.path)|\(size.width)x\(size.height)", url, size)
     }
 
-    nonisolated private static func render(url: URL, size: CGSize) -> CGImage? {
-        guard let source = CIImage(contentsOf: url), source.extent.width > 0, source.extent.height > 0 else { return nil }
+    nonisolated static func render(url: URL, size: CGSize) -> CGImage? {
+        guard size.width > 0, size.height > 0,
+              let file = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let properties = CGImageSourceCopyPropertiesAtIndex(file, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+              let height = properties[kCGImagePropertyPixelHeight] as? CGFloat,
+              width > 0, height > 0 else { return nil }
+        let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
+        let rotated = (5...8).contains(orientation)
+        let sourceSize = rotated ? CGSize(width: height, height: width) : CGSize(width: width, height: height)
+        let fillScale = min(1, max(size.width / sourceSize.width, size.height / sourceSize.height))
+        // Decode only the pixels needed for the blurred backdrop. Bound unusually tall/wide
+        // wallpapers too; slight upscaling after the crop is harmless at this blur radius.
+        let maxPixelSize = min(2048, ceil(max(width, height) * fillScale))
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(file, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceShouldCacheImmediately: true,
+        ] as CFDictionary) else { return nil }
+        let source = CIImage(cgImage: thumbnail)
         // Aspect-fill into `size`, centred.
         let scale = max(size.width / source.extent.width, size.height / source.extent.height)
         let scaled = source.transformed(by: CGAffineTransform(scaleX: scale, y: scale))

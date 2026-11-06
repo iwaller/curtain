@@ -486,3 +486,22 @@ Validation completed:
 These are compilation, isolated native-component and offscreen-render checks, not end-to-end Computer Use or physical-display acceptance. Actual per-app language changes through System Settings, real unlock/Touch ID dialogs, update dialogs against a live server, and remote operation in the localized build remain unverified. No installed app was replaced or restarted; no system permissions, gamma, or system lock state were changed. No commit or release was created. Existing unrelated worktree changes were preserved.
 
 Logs: `artifacts/localization/{build,signature,localizations,updates,interactions,previews}.log`. Localization contract: [App maintenance](subsystems/app-maintenance.md#localization).
+
+## 2026-11-06: Memory review and unlock wallpaper optimization
+
+Reviewed process footprint, timers, window/art ownership, input monitors, guardian lifetime and update-session cleanup. The existing installed process (PID 63388, open state, approximately 57 minutes old) measured 31.8 MiB physical footprint with a historical peak of 153.3 MiB. Three `top` samples reported 0.0% CPU, 32M memory and four threads; no guardian was running while open. RSS was approximately 105 MiB and includes shared/resident mappings, so it is not used as the private-memory figure. `leaks` reported 736 bytes in 23 allocations, but warned that this signed process was not debuggable; the result cannot establish leak freedom or identify those allocations' owners. The built app occupies approximately 3.8 MiB on disk.
+
+Found two concrete wallpaper costs: full-source Core Image loading before downscaling, and a process-lifetime image dictionary keyed by wallpaper path and screen size without eviction. Replaced source loading with an oriented ImageIO thumbnail sized for aspect fill (maximum dimension 2048), serialized preparation with per-work-item autorelease, and cleared cached/pending session art after guardian-approved cleanup. A generation check rejects late results from old sessions. Black/temporary-unlock transitions retain art for reuse; the next privacy session renders fresh art. Privacy polling and guardian timing were not changed.
+
+Controlled comparison: separately compiled the original and updated production renderer, used `/System/Library/CoreServices/DefaultDesktop.heic`, rendered the same 756×491 output and forced pixel materialization. Three fresh processes per version, measured with `/usr/bin/time -l` on macOS 26.7.1 / arm64:
+
+| Renderer | Median peak physical footprint | Median render time |
+| --- | --- | --- |
+| Original | 138.98 MiB | 117 ms |
+| ImageIO thumbnail | 96.06 MiB | 124 ms |
+
+The measured rendering peak fell by 42.92 MiB (30.9%); this does not claim the same reduction for the entire running app or its idle footprint. Render timing is similar in this small sample. A software-only Core Image experiment did not improve footprint and was not adopted. Viewed the before/after images side by side: composition and blur remain comparable; average absolute RGB channel differences were 0.64/0.31/0.96 on a 0–255 scale.
+
+Validation: `./scripts/build.sh` passed, including strict/deep code-signature verification; `./scripts/test-backdrop-art.sh` passed image-format/orientation/opaque-corner checks, missing/corrupt fallback, within-session reuse, clear-before-completion and five overlapping session generations. `git diff --check` passed. Tests directly exercise production art code and background publication without creating windows, changing gamma, requesting authentication or locking the system. Source inspection confirms cache cleanup remains after the existing guardian permission check. Existing unrelated updater/distribution worktree edits were preserved.
+
+Raw evidence and the baseline renderer are in `artifacts/memory-review/`: `live-{vmmap,footprint,top,leaks}.txt`, `benchmark.json`, `render-{before,after}-*.log`, `comparison.png`, `backdrop-tests.log` and `build.log`. No installed app was replaced or restarted. Updated full-app idle/peak memory after real unlock, multi-display rendering, HDR/wide-gamut wallpaper appearance and overnight stability remain unverified. This is compilation, component and isolated performance validation, not new physical-display or Computer Use acceptance.

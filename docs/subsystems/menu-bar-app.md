@@ -60,6 +60,14 @@ gamma 的运行失败、首次拉上失败和回黑失败均通过同一清理�
 - 密码错误：与系统锁屏一致，不显示文字；1 秒后只让密码胶囊左右晃动，清空并重新聚焦。Touch ID 识别失败、锁定、不可用分别提示；选择“输入密码”时不提示。
 - Esc：与 Touch ID 取消相同，回到黑屏并进入 3 秒冷却。
 
+## Backdrop resource lifecycle (2026-11-06)
+
+[BackdropArt.swift](../../Sources/App/BackdropArt.swift) decodes wallpaper with ImageIO at the aspect-fill resolution needed for the half-point-size backdrop, with a 2048-pixel maximum thumbnail dimension. EXIF orientation is applied before the existing Core Image blur/color treatment. Missing or unsupported images still use the dark-gradient fallback. This is wallpaper-only processing; it never captures desktop windows.
+
+Preparation runs on one utility queue with an autorelease pool per work item, preventing simultaneous source-image decodes for multiple displays. Art is reused while closed/unlocking, including timeout/cancel returns to black. After the guardian permits cleanup and unlock windows are removed, `finishOpen()` clears the cache and invalidates pending results with a session generation. An old completion cannot repopulate the cache or remove a new session's pending request. Recovery that refuses cleanup retains the current session's resources. The next close prepares fresh art, so old wallpaper paths and screen sizes do not accumulate across sessions.
+
+`./scripts/test-backdrop-art.sh` checks PNG/JPEG/HEIC rendering, rotated-image color regions, opaque corners, missing/corrupt files, cache reuse/release and overlapping asynchronous sessions. It creates no windows and changes no display state. Measurements and limits are in the [verification record](../verification.md).
+
 ## 应用图标（2026-11-06 “光缝”）
 
 `Resources/Curtain.icon`（Icon Composer 格式）由 `scripts/make-icon.py` 生成，改图标请改脚本后重新运行，再 `build.sh`（`actool` 编译为 macOS 26+ 的 `Assets.car` 与 macOS 15 用的 `Curtain.icns`）。
