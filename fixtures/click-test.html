@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Curtain — GUI Click Test</title>
+<style>
+  body { margin: 0; background: #e9f1fa; color: #132b46; font: 24px system-ui; }
+  main { margin: 60px auto; padding: 40px; max-width: 700px; background: white; border: 4px solid #2362a0; border-radius: 20px; }
+  h1 { font-size: 34px; } button { display: block; width: 100%; padding: 32px; background: #145cc1; color: white; font: bold 32px system-ui; border: 0; border-radius: 12px; cursor: pointer; }
+  #count { font-size: 64px; font-weight: bold; } #status { min-height: 50px; }
+</style>
+<main>
+  <h1>Curtain · GUI Click Test</h1>
+  <p>Dedicated local page. No sensitive content.</p>
+  <p>Click count: <output id="count" aria-live="polite">0</output></p>
+  <button id="increment">Click once to increment</button>
+  <p id="status">Ready — waiting for a GUI click.</p>
+</main>
+<script>
+  let count = 0;
+  document.getElementById('increment').addEventListener('click', () => {
+    document.getElementById('count').textContent = String(++count);
+    document.getElementById('status').textContent = `Confirmed click ${count}`;
+  });
+</script>
+</html>
