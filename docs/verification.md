@@ -417,3 +417,46 @@ M1 不通过完整验收，不进入产品功能。下一步应在已确认观�
 原始输出：`artifacts/update-review/final-build.log`、`final-updates.log`、`utility-window.log`、`watchdog.log`、`display-gamma.log`、`recovery-gamma.log`。原生探针为同目录 `UtilityWindowProbe.swift`。
 
 发布阻塞与未验范围：当前没有 Curtain remote；此前对同服务器 admin/curtain 的只读查询为 404（交接证据 `curtain-release-repo.json`），本轮没有创建仓库或发布。配置入口已接入，404 不会当作最新版；真实服务检查、联网下载、安装后自动重启、应用完整菜单、权限拖入/系统设置与新代码下 UU 菜单解锁均待主审/现场复核。保留所有当前修改，未提交、推送、发布、安装或重启正在使用的应用。
+
+## 2026-11-06：按 Barlet 重写权限界面并检查原生预览
+
+基线为已提交的 f4a61b5。用户反馈图 `artifacts/permission-redesign/user-feedback.png` 显示：已授权界面仍堆叠设置按钮、长说明和拖动区。本轮实际读取反馈图及 Barlet 的 PermissionWindow、PermissionRow、SettingsDragGuide 源码，重写生产 [PermissionGuide.swift](../Sources/App/PermissionGuide.swift)。
+
+- 主窗 440×352 pt、内容边距 32 pt、透明隐藏标题栏；图标、短标题、一句说明及一张横向权限卡片。未授权卡片右侧为“允许”，底部“稍后设置”；已授权为绿色勾选“已允许”，只留生效提示和“完成”，不再显示任何授权步骤或禁用设置按钮。
+- 点击“允许”才打开系统设置并进入独立 440×128 pt 拖动条，包含返回箭头、操作短句与可拖动 Curtain 行。跟随前台设置窗口，切走后隐藏并停轮询；返回、主窗关闭、拉幕前收起与授权成功均清理该流程。权限读回仅刷新 UI/收起引导，不自动改输入 tap、恢复 gamma 或激活主窗。现有状态/更新互斥保留。
+- `./scripts/build.sh` 通过，无新增警告；`codesign --verify --deep --strict build/Curtain.app` 和 `git diff --check` 通过。`python3 scripts/test-updates.py` 的 56 项检查通过，包含权限只读轮询与禁止呈现/更新保护。本轮没有改守护或 gamma 源码，未重复其进程故障实验。
+- 主审反馈：再次通过 `cua_repl getApp` 按真实安装路径读取窗口，仍报 `-10005 timeoutReached`；按 bundle id 会因 build/Applications 两份而歧义。因此 **Computer Use GUI、真实设置拖放/返回/授权与新版菜单验收仍待测**，不把离屏渲染当作点击通过。
+
+视觉证据由 `./scripts/render-permissions.sh` 生成：编译 [PermissionPreview.swift](../Tests/PermissionPreview.swift) 与生产视图同一源码，在独立 bundle id 的 build/PermissionPreview.app 内构造真实 AppKit 窗口/面板，再离屏绘制 PNG。没有 HTML 仿制，没有显示窗口、打开系统设置或修改权限。使用真实应用图标与系统字体/颜色；明暗外观仅指定给测试窗口，不改系统外观。
+
+| 状态 | 亮色预览 | 暗色预览 |
+| --- | --- | --- |
+| 未授权 | `artifacts/permission-redesign/ungranted-light.png` | `artifacts/permission-redesign/ungranted-dark.png` |
+| 已授权 | `artifacts/permission-redesign/granted-light.png` | `artifacts/permission-redesign/granted-dark.png` |
+| 独立拖动引导 | `artifacts/permission-redesign/guide-light.png` | `artifacts/permission-redesign/guide-dark.png` |
+
+另外生成同一主窗实例的 `transition-granted-{light,dark}.png`、`transition-revoked-{light,dark}.png`，检查授权/撤销切换后的实际绘制。核心六图及四张切换图均已用 view_image 逐张查看：卡片和文字对齐、换行无裁切、已授权没有操作占位、明暗颜色可读。初次暗色拖动条的应用图标未绘制，已改为与主窗相同的应用图标来源，重新渲染并查看通过。
+
+离屏预览限制：非激活交通灯/按钮状态、窗口外缘与桌面阴影不等同前台真实窗口；拖动条跟随位置和真实文件拖放尚未 GUI 验收。原始命令输出为 `artifacts/permission-redesign/build.log`、`updates.log`、`previews.log`，同目录 README 列出全部图片与复现方法。
+
+本轮未提交、推送、安装、发布或操作原安装进程；未拉幕、未锁屏，参考 Barlet 项目保持只读。等待主审逐图复核后再决定后续。
+
+### 后续用户授权：重新打包、重启及重置权限
+
+用户随后明确要求重新打包并重启。`./scripts/build.sh` 及安装签名验证通过；确认当前实例处于 open 后执行 `./scripts/install.sh`，原 PID 60266 正常退出，08:34:20 UTC 启动 /Applications/Curtain.app 新实例 PID 11327，默认拉开。安装主程序与构建产物 SHA-256 一致，构建标识 f4a61b5-dirty；没有提交或发布。输出在 `artifacts/permission-redesign/restart-build.log`、`install.log`。
+
+用户再要求重置权限以测试。确认 open 后正常退出该实例，仅执行 `tccutil reset Accessibility local.zjf.curtain`（成功），并清除该应用的首次引导标记（当时已不存在），随后重新打开 /Applications/Curtain.app。未重置其他应用或其他类别权限，未拉幕或锁屏。新版真实未授权/允许/拖动返回与授权后的现场结果等待用户测试，不能从重启成功推断 GUI 已验收。
+
+### 用户现场反馈后的 Barlet 交互对齐
+
+用户指出点击“允许”没有动画且主窗消失，并提供截图要求提示单行、修正拖动。再次对照 Barlet 确认上一版省略了飞入动画、主动 orderOut 主窗，且使用固定原点的单图标拖动，没有暂停跟随。现已修复：
+
+- 主窗保持打开；按钮实际屏幕 rect 作为起点，拖动条用 0.72 秒 display-link 阻尼弹簧沿弧线缩放淡入。切走、关闭、授权成功及主动收起时停止动画；减少动态效果时直接呈现。
+- 提示改为“将 Curtain 拖入上方列表，或开启已有开关。”单行，拖动条缩为 440×104 pt；明暗预览均确认无裁切。
+- 与 Barlet 一致，原生拖动使用整行快照、以原始 bounds 开始；原行拖动时隐藏，结束后恢复。拖动期间暂停面板位置轮询，避免重复查询/移动干扰拖放。
+
+验证：`./scripts/build.sh`、应用签名检查、56 项更新/权限回归、`git diff --check` 通过。新增 `./scripts/test-permission-interactions.sh` 五组原生组件回归通过：替身打开设置时主窗保持可见、禁止状态下旧按钮不再发起设置、文件 URL 与整行快照、实际 display-link 会推进并完成一次且恢复终态、停止后无晚到移动/完成回调。该测试短暂显示自有窗口，未打开真实系统设置或更改权限，不计为 Computer Use 点击或真实拖入授权验收。
+
+预览已重新生成并读取 `guide-{light,dark}.png`、`drag-snapshot-light.png`、`flight-middle-light.png`；新增明暗动画起点/中间/终点姿态及拖动快照。生产原生视图和动画实现直接参与渲染；静态姿态仍不是实时时序验收。日志为 `animation-build.log`、`interaction-tests.log`、`updates.log`、`previews.log`，均位于 `artifacts/permission-redesign/`。
+
+沿用用户本轮重新打包/重启授权，确认实例保持 open 后安装并重启修正版；08:46:45 UTC 新 PID 29223，安装版与构建主程序 SHA-256 一致且签名有效。输出 `animation-install.log`。未再次重置权限、拉幕、锁屏或提交代码；真实鼠标拖动、系统列表接收及视觉流畅性仍等待用户复测。

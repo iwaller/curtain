@@ -9,7 +9,7 @@
 | agent 协作规范、需求分析、实验步骤 | 已完成文档 | [AGENTS.md](../AGENTS.md)、[实验方案](poc-plan.md) |
 | 实验 CLI `curtain-poc` | 已编译 | [POC](../Sources/POC/main.swift)、[构建脚本](../scripts/build.sh) |
 | 菜单栏应用 `Curtain.app` | 本地解锁、20 秒回黑、UU 密码解锁已实测；输入拦截后的 Codex/UU 完整回归待测 | [菜单栏子系统](subsystems/menu-bar-app.md) |
-| 手动更新、关于、权限引导 | 已实现；签名包与隔离替换/取消回归通过，完整 GUI/真实发布安装待验；发布源当前尚不可用 | [应用维护](subsystems/app-maintenance.md) |
+| 手动更新、关于、权限引导 | 已实现；权限卡片、保留主窗、飞入及整行拖动按 Barlet 对齐，原生预览和组件回归通过；完整 GUI/真实发布安装待验 | [应用维护](subsystems/app-maintenance.md) |
 | 心跳守护与故障锁屏 | 已实现；主线程每秒心跳，约 10 秒超时后请求系统锁屏并结束 Curtain；替代菜单栏默认 300 秒限制，验收见验证记录 | [故障恢复](subsystems/recovery-watchdog.md) |
 | 每显示器黑色覆盖窗口、限时退出 | 已实现；单显示器启动/退出实测 | [遮罩子系统](subsystems/privacy-overlay.md) |
 | Computer Use 截图与点击兼容性 | 普通遮罩下截图可读、坐标点击通过 | [验证子系统](subsystems/computer-use-validation.md) |
