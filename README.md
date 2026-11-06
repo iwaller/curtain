@@ -14,6 +14,8 @@ open build/Curtain.app          # 菜单栏应用（开发版）
 ./build/curtain-poc --gamma --duration 90   # 实验 CLI
 ```
 
+支持 macOS 15 及以上（Apple 芯片；构建目标与 `Info.plist` 一致）。日常使用与验证在 macOS 26；15 与 27 尚未实测。
+
 运行期间会短暂黑屏，到时自动退出。启动日志包含 PID，可从另一终端用 `kill -TERM <pid>` 结束。持续时间范围为 1–300 秒，默认 90 秒。`--exclude-capture` 启用 `.none` 对照；`--no-overlay` 不显示窗口，只检查退出生命周期。`--gamma` 为实验模式：不用窗口，把显示器 gamma 清零，退出时自动恢复；UU 等远程画面仍显示正常内容，需要在实体屏幕前验证。
 
 测试页面：[fixtures/click-test.html](fixtures/click-test.html)。GUI 验证使用现有 Computer Use；操作步骤、清理和证据见 [验证记录](docs/verification.md)。

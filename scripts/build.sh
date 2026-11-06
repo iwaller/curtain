@@ -5,7 +5,9 @@
 set -euo pipefail
 cd "${0:A:h:h}"
 mkdir -p build/module-cache
-swiftc_common=(xcrun swiftc -module-cache-path build/module-cache)
+# Supported: macOS 15 and later (keep in sync with LSMinimumSystemVersion in Resources/Info.plist).
+min_macos=15.0
+swiftc_common=(xcrun swiftc -module-cache-path build/module-cache -target "$(uname -m)-apple-macos$min_macos")
 
 identity=${CURTAIN_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
   | awk -F'"' '/Apple Development/ {print $2; exit}')}
@@ -19,10 +21,10 @@ mkdir -p "$app/Contents/MacOS"
 $swiftc_common -framework AppKit -framework IOKit -framework ApplicationServices \
   Sources/Shared/*.swift Sources/App/*.swift -o "$app/Contents/MacOS/Curtain"
 cp Resources/Info.plist "$app/Contents/Info.plist"
-# Layered Liquid Glass icon (Icon Composer format) -> Assets.car for macOS 26+, Curtain.icns for older systems.
+# Layered Liquid Glass icon (Icon Composer format) -> Assets.car for macOS 26+, Curtain.icns for macOS 15.
 mkdir -p "$app/Contents/Resources"
 xcrun actool "$PWD/Resources/Curtain.icon" --compile "$PWD/$app/Contents/Resources" --platform macosx \
-  --minimum-deployment-target 14.0 --app-icon Curtain \
+  --minimum-deployment-target "$min_macos" --app-icon Curtain \
   --output-partial-info-plist "$PWD/build/icon-partial.plist" >/dev/null
 codesign --force --timestamp=none --sign "$identity" "$app" >/dev/null
 print "Built build/curtain-poc and $app (signed: $identity)"

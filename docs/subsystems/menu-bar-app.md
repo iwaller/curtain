@@ -40,7 +40,7 @@
 
 ## 应用图标（2026-11-06 “光缝”）
 
-`Resources/Curtain.icon`（Icon Composer 格式）由 `scripts/make-icon.py` 生成，改图标请改脚本后重新运行，再 `build.sh`（`actool` 编译为 macOS 26+ 的 `Assets.car` 与旧系统的 `Curtain.icns`）。
+`Resources/Curtain.icon`（Icon Composer 格式）由 `scripts/make-icon.py` 生成，改图标请改脚本后重新运行，再 `build.sh`（`actool` 编译为 macOS 26+ 的 `Assets.car` 与 macOS 15 用的 `Curtain.icns`）。
 
 - 寓意：整个图标是一幅合上的深色幕布，一道 S 形光缝贯穿上下——屏幕被遮住，后面的 agent 仍在工作。
 - 光缝：中线 x = 512 + S·sin(π(2t − ½))，宽度 W·sin(πt)^0.8（两端收尖、中间最宽）；金 → 珊瑚 → 玫红竖向渐变，中心一道浅色芯，两侧细暖色亮边。
