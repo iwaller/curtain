@@ -233,7 +233,7 @@ private final class PermissionRow: NSView {
     }
 }
 
-/// A small strip over the bottom of System Settings. No AX permission is needed to read its
+/// A guide beside System Settings, with a compact sidebar fallback. No AX permission is needed to read its
 /// window bounds. Only the frontmost Settings app is followed; all timers/observers are scoped
 /// to this flow. The strip launches from the Allow button, following Barlet's spring/arc.
 @MainActor
@@ -262,6 +262,7 @@ private final class SettingsDragGuide {
             self.dismiss()
             self.onBack?()
         }
+        panel.onDismiss = { [weak self] in self?.dismiss() }
         panel.onDraggingApp = { [weak self, weak panel] dragging in
             guard let self, let panel else { return }
             self.draggingApp = dragging
@@ -329,13 +330,19 @@ private final class SettingsDragGuide {
             // CG coordinates use a top-left origin on the primary display; Cocoa uses bottom-left.
             let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
             let settingsFrame = NSRect(x: global.minX, y: primaryTop - global.maxY, width: global.width, height: global.height)
-            let visible = (NSScreen.screens.first { $0.frame.intersects(settingsFrame) } ?? NSScreen.main)?.visibleFrame ?? settingsFrame
-            let size = panel.frame.size
-            let x = settingsFrame.maxX - size.width - 16
-            let y = settingsFrame.minY + 44
-            let target = NSRect(x: max(visible.minX + 8, min(x, visible.maxX - size.width - 8)),
-                                y: max(visible.minY + 8, min(y, visible.maxY - size.height - 8)),
-                                width: size.width, height: size.height)
+            let screen = NSScreen.screens.max { lhs, rhs in
+                let a = lhs.visibleFrame.intersection(settingsFrame)
+                let b = rhs.visibleFrame.intersection(settingsFrame)
+                return (a.isNull ? 0 : a.width * a.height) < (b.isNull ? 0 : b.width * b.height)
+            }
+            let visible = (screen ?? NSScreen.main)?.visibleFrame ?? settingsFrame
+            let placement = PermissionGuidePlacement(settings: settingsFrame, visible: visible)
+            if panel.isCompact != placement.compact {
+                launch?.stop()
+                launch = nil
+                panel.setCompact(placement.compact)
+            }
+            let target = placement.frame
             if let launch {
                 launch.target = target
             } else if let source = launchSource, !source.isEmpty {
@@ -441,10 +448,50 @@ final class PermissionLaunchAnimation: NSObject {
     }
 }
 
+/// Keep the guide outside Settings when possible. If the screen is crowded, use the
+/// left sidebar rather than the permission list and its right-aligned switches.
+struct PermissionGuidePlacement {
+    let frame: CGRect
+    let compact: Bool
+
+    init(settings: CGRect, visible: CGRect) {
+        let safe = visible.insetBy(dx: 8, dy: 8)
+        func clamped(_ value: CGFloat, _ minimum: CGFloat, _ maximum: CGFloat) -> CGFloat {
+            max(minimum, min(value, maximum))
+        }
+        for size in [CGSize(width: 440, height: 104), CGSize(width: 220, height: 154)] {
+            let x = clamped(settings.maxX - size.width, safe.minX, safe.maxX - size.width)
+            let y = clamped(settings.minY, safe.minY, safe.maxY - size.height)
+            let candidates = [
+                CGRect(origin: CGPoint(x: x, y: settings.minY - size.height - 8), size: size),
+                CGRect(origin: CGPoint(x: x, y: settings.maxY + 8), size: size),
+                CGRect(origin: CGPoint(x: settings.minX - size.width - 8, y: y), size: size),
+                CGRect(origin: CGPoint(x: settings.maxX + 8, y: y), size: size),
+            ]
+            if let candidate = candidates.first(where: { safe.contains($0) && !$0.intersects(settings) }) {
+                frame = candidate
+                compact = size.width < 440
+                return
+            }
+        }
+        compact = true
+        frame = CGRect(x: clamped(settings.minX + 8, safe.minX, safe.maxX - 220),
+                       y: clamped(settings.minY + 16, safe.minY, safe.maxY - 154),
+                       width: 220, height: 154)
+    }
+}
+
 @MainActor
 final class PermissionDragPanel: NSPanel {
     var onBack: (() -> Void)?
+    var onDismiss: (() -> Void)?
     var onDraggingApp: ((Bool) -> Void)?
+    private(set) var isCompact = false
+    private let background = NSVisualEffectView()
+    private let back = NSButton()
+    private let dismissButton = NSButton()
+    private let hint = NSTextField(wrappingLabelWithString: String(localized: "Drag Curtain into Settings, or turn it on."))
+    private let row = PermissionAppDragRow(frame: NSRect(x: 60, y: 13, width: 362, height: 44))
 
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 440, height: 104),
@@ -458,32 +505,46 @@ final class PermissionDragPanel: NSPanel {
         hasShadow = true
         hidesOnDeactivate = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-        let background = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 440, height: 104))
         background.material = .popover
         background.blendingMode = .withinWindow
         background.state = .active
         background.wantsLayer = true
         background.layer?.cornerRadius = 16
         background.layer?.masksToBounds = true
-        let back = NSButton(image: NSImage(systemSymbolName: "chevron.left", accessibilityDescription: String(localized: "Back to Permissions")) ?? NSImage(), target: self, action: #selector(backClicked))
+        back.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: nil)
+        back.target = self
+        back.action = #selector(backClicked)
         back.bezelStyle = .circular
-        back.frame = NSRect(x: 16, y: 20, width: 30, height: 30)
         back.setAccessibilityLabel(String(localized: "Back to Permissions"))
-        let arrow = NSImageView(image: NSImage(systemSymbolName: "arrow.up", accessibilityDescription: nil) ?? NSImage())
-        arrow.symbolConfiguration = .init(pointSize: 21, weight: .bold)
-        arrow.contentTintColor = .controlAccentColor
-        arrow.frame = NSRect(x: 60, y: 66, width: 24, height: 26)
-        let hint = NSTextField(labelWithString: String(localized: "Drag Curtain into the list above, or turn it on."))
+        back.toolTip = String(localized: "Back to Permissions")
+        dismissButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
+        dismissButton.target = self
+        dismissButton.action = #selector(dismissClicked)
+        dismissButton.bezelStyle = .circular
+        dismissButton.setAccessibilityLabel(String(localized: "Hide Permission Guide"))
+        dismissButton.toolTip = String(localized: "Hide Permission Guide")
         hint.font = .systemFont(ofSize: 13, weight: .medium)
         hint.textColor = .secondaryLabelColor
-        hint.frame = NSRect(x: 94, y: 68, width: 328, height: 22)
-        let row = PermissionAppDragRow(frame: NSRect(x: 60, y: 13, width: 362, height: 44))
         row.onDragging = { [weak self] dragging in self?.onDraggingApp?(dragging) }
-        let root = NSView(frame: background.frame)
+        let root = NSView()
         root.wantsLayer = true
         root.addSubview(background)
-        [back, arrow, hint, row].forEach(background.addSubview)
+        [back, dismissButton, hint, row].forEach(background.addSubview)
         contentView = root
+        setCompact(false)
+    }
+
+    func setCompact(_ compact: Bool) {
+        isCompact = compact
+        let size = compact ? NSSize(width: 220, height: 154) : NSSize(width: 440, height: 104)
+        setContentSize(size)
+        background.frame = NSRect(origin: .zero, size: size)
+        back.frame = NSRect(x: 16, y: compact ? 10 : 20, width: 30, height: 30)
+        dismissButton.frame = NSRect(x: compact ? 174 : 396, y: compact ? 10 : 64, width: 30, height: 30)
+        hint.frame = compact ? NSRect(x: 14, y: 100, width: 192, height: 42)
+                             : NSRect(x: 60, y: 66, width: 330, height: 26)
+        row.frame = compact ? NSRect(x: 14, y: 48, width: 192, height: 44)
+                            : NSRect(x: 60, y: 13, width: 362, height: 44)
     }
 
     override var canBecomeKey: Bool { false }
@@ -500,6 +561,7 @@ final class PermissionDragPanel: NSPanel {
         invalidateShadow()
     }
     @objc private func backClicked() { onBack?() }
+    @objc private func dismissClicked() { onDismiss?() }
 }
 
 final class PermissionAppDragRow: NSView, NSDraggingSource {
@@ -517,7 +579,8 @@ final class PermissionAppDragRow: NSView, NSDraggingSource {
         icon.frame = NSRect(x: 12, y: 9, width: 26, height: 26)
         let title = NSTextField(labelWithString: "Curtain")
         title.font = .systemFont(ofSize: 14, weight: .semibold)
-        title.frame = NSRect(x: 48, y: 12, width: 200, height: 20)
+        title.frame = NSRect(x: 48, y: 12, width: max(0, frame.width - 60), height: 20)
+        title.autoresizingMask = [.width]
         addSubview(icon)
         addSubview(title)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
@@ -526,6 +589,10 @@ final class PermissionAppDragRow: NSView, NSDraggingSource {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        dragImage = nil
+    }
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua

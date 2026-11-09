@@ -113,7 +113,7 @@ struct UpdateTests {
         check(true, "system tar round-trip preserves app and helper code integrity")
         rejects("package differs from release version") { try UpdatePackage.verify(unpacked, expected: AppVersion("0.3")!, current: old, publicKey: publicKey) }
         rejects("package is not newer") { try UpdatePackage.verify(unpacked, expected: next, current: next, publicKey: publicKey) }
-        for fixture in ["wrong-id", "incompatible", "tampered", "tampered-helper", "missing-helper", "wrong-key"] {
+        for fixture in ["wrong-id", "incompatible", "tampered", "tampered-helper", "missing-helper", "missing-renderer", "tampered-renderer", "wrong-key"] {
             rejects("reject \(fixture) package") { try UpdatePackage.verify(root.appendingPathComponent("\(fixture)/Curtain.app"), expected: next, current: old, publicKey: publicKey) }
         }
         let adhocStage = root.appendingPathComponent("adhoc-roundtrip")

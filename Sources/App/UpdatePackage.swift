@@ -226,10 +226,13 @@ enum UpdatePackage {
         }
         let executable = app.appendingPathComponent("Contents/MacOS/Curtain")
         let helper = app.appendingPathComponent("Contents/Helpers/CurtainWatchdog")
-        guard FileManager.default.isExecutableFile(atPath: executable.path),
+        let renderer = app.appendingPathComponent("Contents/Helpers/CurtainRenderer")
+        guard FileManager.default.isExecutableFile(atPath: renderer.path),
+              FileManager.default.isExecutableFile(atPath: executable.path),
               FileManager.default.isExecutableFile(atPath: helper.path) else { throw UpdateFailure.invalidPackage }
-        // The archive's Ed25519 signature authenticates both binaries, including ad-hoc code.
+        // The archive's Ed25519 signature authenticates all binaries, including ad-hoc code.
         try checkSignature(helper, identifier: nil)
+        try checkSignature(renderer, identifier: nil)
         #if arch(arm64)
         let architecture = "arm64"
         #else
@@ -238,6 +241,7 @@ enum UpdatePackage {
         do {
             _ = try run("/usr/bin/lipo", ["-verify_arch", architecture, executable.path])
             _ = try run("/usr/bin/lipo", ["-verify_arch", architecture, helper.path])
+            _ = try run("/usr/bin/lipo", ["-verify_arch", architecture, renderer.path])
         } catch { throw UpdateFailure.incompatible }
     }
 

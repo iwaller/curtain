@@ -14,7 +14,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 LOGS.mkdir(parents=True, exist_ok=True)
 
 def compile_to(path, sources):
-    subprocess.run(['xcrun', 'swiftc', '-module-cache-path', str(ROOT / 'build/module-cache'),
+    subprocess.run(['xcrun', 'swiftc', '-Osize', '-whole-module-optimization', '-module-cache-path', str(ROOT / 'build/module-cache'),
                     *map(str, sources), '-o', str(path)], cwd=ROOT, check=True)
 
 shared = sorted((ROOT / 'Sources/Shared').glob('*.swift'))

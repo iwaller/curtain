@@ -35,7 +35,7 @@ assert test_secret.read_bytes() == original_secret
 public_key = test_public.read_text().strip()
 print('PASS key generation permissions and refusal to overwrite existing keys', flush=True)
 
-def fixture(name, changes=None, adhoc=False, missing_helper=False):
+def fixture(name, changes=None, adhoc=False, missing_helper=False, missing_renderer=False):
     app = OUT / name / 'Curtain.app'
     shutil.copytree(APP, app)
     plist = app / 'Contents/Info.plist'
@@ -49,6 +49,11 @@ def fixture(name, changes=None, adhoc=False, missing_helper=False):
         helper.unlink()
     elif adhoc:
         subprocess.run(['codesign', '--force', '--timestamp=none', '--sign', '-', str(helper)], check=True, capture_output=True)
+    renderer = app / "Contents/Helpers/CurtainRenderer"
+    if missing_renderer:
+        renderer.unlink()
+    elif adhoc:
+        subprocess.run(["codesign", "--force", "--timestamp=none", "--sign", "-", str(renderer)], check=True, capture_output=True)
     subprocess.run(['codesign', '--force', '--timestamp=none', '--sign', '-' if adhoc else identity,
                     '--identifier', 'local.zjf.curtain', str(app)], check=True, capture_output=True)
     return app
@@ -57,6 +62,10 @@ valid = fixture('valid')
 fixture('wrong-id', {'CFBundleIdentifier': 'local.other.app'})
 fixture('incompatible', {'LSMinimumSystemVersion': '999.0'})
 fixture('missing-helper', missing_helper=True)
+fixture('missing-renderer', missing_renderer=True)
+tampered_renderer = fixture('tampered-renderer') / 'Contents/Helpers/CurtainRenderer'
+with tampered_renderer.open('ab') as stream:
+    stream.write(b'tampering')
 adhoc = fixture('adhoc', adhoc=True)
 fixture('wrong-key', {'CurtainUpdatePublicKey': 'not-the-pinned-key'}, adhoc=True)
 tampered = fixture('tampered')
@@ -88,7 +97,7 @@ with tarfile.open(OUT / 'hardlink.zip', 'w') as archive:
     archive.addfile(entry)
 
 binary = OUT / 'update-tests'
-subprocess.run(['xcrun', 'swiftc', '-module-cache-path', str(ROOT / 'build/module-cache'), '-framework', 'AppKit',
+subprocess.run(['xcrun', 'swiftc', '-Osize', '-whole-module-optimization', '-module-cache-path', str(ROOT / 'build/module-cache'), '-framework', 'AppKit',
                 '-framework', 'Security', 'Sources/App/AppVersion.swift', 'Sources/App/UpdatePackage.swift',
                 'build/UpdateTrust.swift',
                 'Sources/App/Updater.swift', 'Sources/App/PermissionGuide.swift', 'Tests/UpdateTests.swift',

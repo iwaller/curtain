@@ -37,6 +37,21 @@ enum PermissionInteractionTests {
         precondition(opened == 1, "A stale button must not open Settings during privacy/update")
         print("PASS dismiss cleans the flow; stale Allow is rejected when presentation is forbidden")
 
+        let smallScreen = CGRect(x: 0, y: 54, width: 1024, height: 690)
+        let crowdedSettings = CGRect(x: 183, y: 102, width: 740, height: 625)
+        let compact = PermissionGuidePlacement(settings: crowdedSettings, visible: smallScreen)
+        let switches = CGRect(x: 800, y: 120, width: 110, height: 500)
+        precondition(compact.compact && smallScreen.contains(compact.frame))
+        precondition(!compact.frame.intersects(switches), "Crowded layout must leave the switches accessible")
+        for screen in [CGRect(x: 0, y: 50, width: 1920, height: 1000),
+                       CGRect(x: -1920, y: -300, width: 1920, height: 1000)] {
+            let settings = CGRect(x: screen.minX + 500, y: screen.minY + 220, width: 740, height: 620)
+            let placement = PermissionGuidePlacement(settings: settings, visible: screen)
+            precondition(!placement.compact && screen.contains(placement.frame))
+            precondition(!placement.frame.intersects(settings), "Roomy layout must stay outside Settings")
+        }
+        print("PASS placement leaves crowded-screen switches accessible and stays outside Settings when space permits")
+
         let panel = PermissionDragPanel()
         panel.setFrameOrigin(NSPoint(x: 300, y: 300))
         let row = PermissionAppDragRow(frame: NSRect(x: 0, y: 0, width: 362, height: 44))

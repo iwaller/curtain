@@ -30,7 +30,7 @@
 "Done" = "完成";
 "Download and Install" = "下载并安装";
 "Downloading Curtain %@…" = "正在下载 Curtain %@…";
-"Drag Curtain into the list above, or turn it on." = "将 Curtain 拖入上方列表，或打开已有开关。";
+"Drag Curtain into Settings, or turn it on." = "将 Curtain 拖入系统设置，或打开开关。";
 "Drag Curtain into the permissions list." = "将 Curtain 拖入权限列表。";
 "Enable Privacy Screen" = "开启隐私屏";
 "Enter Password" = "输入密码";
@@ -68,3 +68,5 @@
 "unlock the privacy screen" = "解锁隐私屏";
 
 "The update signature is missing or invalid. The current app has not been replaced." = "更新签名缺失或无效，当前应用未被替换。";
+
+"Hide Permission Guide" = "收起权限引导";

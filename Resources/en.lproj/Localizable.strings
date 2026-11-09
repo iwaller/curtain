@@ -30,7 +30,7 @@
 "Done" = "Done";
 "Download and Install" = "Download and Install";
 "Downloading Curtain %@…" = "Downloading Curtain %@…";
-"Drag Curtain into the list above, or turn it on." = "Drag Curtain into the list above, or turn it on.";
+"Drag Curtain into Settings, or turn it on." = "Drag Curtain into Settings, or turn it on.";
 "Drag Curtain into the permissions list." = "Drag Curtain into the permissions list.";
 "Enable Privacy Screen" = "Enable Privacy Screen";
 "Enter Password" = "Enter Password";
@@ -68,3 +68,5 @@
 "unlock the privacy screen" = "unlock the privacy screen";
 
 "The update signature is missing or invalid. The current app has not been replaced." = "The update signature is missing or invalid. The current app has not been replaced.";
+
+"Hide Permission Guide" = "Hide Permission Guide";

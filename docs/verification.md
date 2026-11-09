@@ -555,3 +555,129 @@ These are package, mounted-filesystem and signature checks, not Finder drag-and-
 The user confirmed Apple Silicon (arm64) as the only supported architecture and requested `Curtain-arm64.dmg` as the installer filename. Builds now target `arm64-apple-macos15.0` explicitly and reject non-native build hosts before compilation. DMG packaging rejects app/helper binaries that contain architectures other than arm64. Renamed the installer output and updated support/distribution documentation; the updater still consumes `Curtain.zip` and `Curtain.zip.sig` because only one architecture is published.
 
 Validation: rebuilt the full ad-hoc release successfully; `lipo -archs` reports exactly arm64 for the CLI, app and watchdog. Mounted the renamed DMG read-only and checked both binary architectures, strict/deep code-signature integrity, the Applications shortcut, and exact app-file agreement with the ZIP/build. Detached the validation volume. The independent production verifier accepted the final ZIP and Ed25519 signature. Shell syntax and `git diff --check` passed. Logs: `artifacts/arm64-{release-build,dmg-verification,update-signature}.log`. No installed app was replaced or restarted and no release was published; Intel/Rosetta hosts and quarantined first-launch behavior were not exercised.
+
+
+## 2026-11-07: Bounded CPU wallpaper rendering
+
+Replaced the production Core Image backdrop pipeline with `BackdropRenderer`, using ImageIO, Core Graphics and Accelerate. Unlike the initial low-memory 8-bit prototype, the implemented renderer uses premultiplied extended-linear-sRGB float buffers, a separable Gaussian, pre-crop neighboring pixels and edge extension. It applies the existing saturation/brightness values before converting to opaque sRGB over black. This resolves the prototype's visible dark-tone, alpha and crop-edge differences while retaining a substantial peak-memory reduction. Final artwork is capped at 1024 pixels on its longest axis, with proportional blur scaling; native clock/password views are unaffected.
+
+Finite/request bounds and per-allocation cleanup precede raw-buffer use. Unsupported inputs and allocation/convolution failures retain the existing gradient fallback. The production serial preparation queue, generation-based stale-result rejection, session cache lifetime, unlock-window ordering, gamma/input behavior and guardian protocol are unchanged.
+
+Builds now default to `-Osize -whole-module-optimization` for the app, CLI and watchdog; `CURTAIN_BUILD_CONFIGURATION=debug` selects `-Onone -g`. Existing regression harnesses compile with release optimization. Unknown configuration values fail before bundle replacement. No signing identity, trust key or release publication behavior changed.
+
+### Measurements and appearance
+
+macOS 26.7.1 / Apple Silicon. Compared the previous production renderer with the final production code using the same optimized image-only probe and default system HEIC wallpaper. Three interleaved fresh processes per variant/size, forced pixel materialization, `/usr/bin/time -l` peak physical footprint. PNG exports were separate from performance runs.
+
+| Requested artwork size | Previous output | New output | Previous median peak | New median peak | Previous/new median render time |
+| --- | --- | --- | ---: | ---: | ---: |
+| 756 x 491 | 756 x 491 | 756 x 491 | 95.84 MiB | 39.84 MiB | 136 / 169 ms |
+| 1920 x 1080 | 1920 x 1080 | 1024 x 576 | 145.52 MiB | 51.09 MiB | 134 / 149 ms |
+| 3008 x 1692 | 3008 x 1692 | 1024 x 576 | 231.41 MiB | 49.58 MiB | 154 / 145 ms |
+| 1024 x 1024 | 1024 x 1024 | 1024 x 1024 | 127.09 MiB | 94.27 MiB | 132 / 228 ms |
+
+The normal-size peak reduction is about 58%; large-size results combine renderer replacement with the explicit output cap and are not equal-output-resolution comparisons. These are component-process peaks, not reductions in the running full app's steady footprint. The final float pipeline deliberately uses more memory than the visually different 19-MiB prototype. Image aspect ratio, codec and buffer/framework allocations also affect peak: a 1024 x 1024 output is not covered by the approximately 40–51 MiB figures above.
+
+Eighteen synthetic format/orientation/color fixtures (including 8K JPEG, HEIC, tagged P3, transparency and 16-bit grayscale) were compared to the previous renderer after sRGB conversion and black composition. Mean RGB errors were 0.04–0.68 on a 0–255 scale; all final images were opaque. Default-wallpaper mean error was 0.19 at 756 x 491. Resizing capped outputs to the requested dimensions gave mean errors 0.50 and 0.35 for the larger sizes (95th-percentile channel error 2). Inspected the default-wallpaper and synthetic before/after images: composition, dark tones and blur are close. These metrics and offline previews do not establish HDR/gamut preservation or real physical-display appearance.
+
+One 100-render run of the final renderer peaked at 52.39 MiB; post-render samples ranged approximately 30.6–39.6 MiB and ended at 32.0 MiB, without a sustained upward trend. Elapsed time was 10.04 seconds. Four independently rendered/retained 1920 x 1080 requests (each capped to 1024 x 576) peaked at 54.80 MiB. These short isolated runs are not an overnight leak audit or actual multi-monitor acceptance. CPU processing remains more expensive than the rough 8-bit prototype; rendering stays on the existing serial utility queue and cached art is reused within the session.
+
+### Validation completed
+
+- `./scripts/build.sh` passed, including strict/deep code-signature verification for the app/helper and release ZIP generation. The invalid-configuration check preserved the existing binary.
+- `./scripts/test-backdrop-art.sh` passed original image-format/orientation/cache-generation checks plus new reference-appearance, alpha, pre-crop blur, invalid/tiny dimensions, bounded landscape/portrait and retained-pixel tests.
+- Compiled the same production rendering/lifecycle tests with AddressSanitizer; all passed, with no reported memory-access errors. Leak detection was disabled for the ASan run. A separate fault-injection compile of the final renderer forced the second allocation to fail and observed nil output with zero outstanding allocations.
+- Optimized `python3 scripts/test-watchdog.py`, `python3 scripts/test-recovery-gamma.py`, and `./scripts/test-display-gamma.sh` passed their process/simulated-display recovery checks without requesting a real lock or changing gamma. The real CLI ownership probe was explicitly skipped because the installed privacy session already held the lease.
+- Optimized update/permission checks passed all 82 cases; packaged localization and native language-fallback checks passed for 67 keys; all five permission interaction groups passed using temporary test-owned windows and an inert Settings opener.
+- Shell syntax and `git diff --check` passed.
+
+Evidence is in ignored `artifacts/cpu-backdrop/`: `build.log`, `tests.log`, `asan-tests.log`, `allocation-failure.log`, recovery/update/localization/permission logs, `final-benchmark.json`, `final-fixtures.json`, `final-quality.json`, per-run logs and comparison PNGs. Earlier risk experiments remain in `artifacts/vimage-risk-review/` and are not the final implementation.
+
+The installed Curtain/guardian remained running in the existing closed session. No app was installed or restarted, no permissions or real display/lock state were changed, and no commit or release was created. Full-app idle/peak measurements after a real unlock, physical multi-display/HDR/hot-plug/Space behavior, remote input and overnight stability remain acceptance work. Compilation, simulated recovery, native component checks and offline image comparisons are reported separately from that live acceptance.
+
+## 2026-11-07: Disposable wallpaper renderer integration
+
+Moved the bounded CPU renderer into `Contents/Helpers/CurtainRenderer`. The app retains only final opaque sRGB images, delivered over a size-checked anonymous pipe; no wallpaper transport files are written. `BackdropRenderJob` runs signature verification, launch, bounded reading and cleanup off the main thread. It accepts only exact request dimensions, a supported protocol/format, opaque pixels, EOF and exit status zero. Missing/tampered helpers, launch/transport/render failures, cancellation and deadline expiration use the existing gradient. The worker has no gamma, input, authentication or watchdog code.
+
+Session clearing now also cancels pending jobs. The existing generation check and guardian-approved cleanup location remain intact. An owned worker is killed/reaped on failure or cancellation; an independent eight-second helper deadline and parent-exit observer cover parent loss and blocked output. The parent read/completion deadline is five seconds after launch, followed by at most one second for cleanup. Synchronous OS signature verification/launch is not interruptible by this deadline but stays off the main thread. Packaging and update checks require and validate both helpers.
+
+### Production-client memory comparison
+
+Used the actual production `BackdropRenderJob`, pixel protocol and signed release helper. Each fresh host initialized AppKit plus an offscreen production permission window, closed that window, then rendered and retained the default HEIC wallpaper at 756 x 491. The direct host linked the same CPU renderer; the subprocess host did not link its implementation or Accelerate explicitly. Both materialized and hashed output, ran the same main-loop waits, and sampled Mach physical footprint. Three interleaved runs per variant on macOS 26.7.1 / arm64; table values are medians.
+
+| Measurement | CPU renderer in host | Production subprocess client |
+| --- | ---: | ---: |
+| Baseline | 18.77 MiB | 18.75 MiB |
+| Art retained, 10 seconds after render | 39.17 MiB | 21.66 MiB |
+| Art cleared, 5 seconds later | 37.75 MiB | 18.88 MiB |
+| Wallpaper preparation | 214 ms | 328 ms |
+
+Retained parent footprint fell by **17.52 MiB** in this host. All six pixel hashes matched. The measured preparation tradeoff was approximately **114 ms**; it is background work and does not gate privacy activation. This is a small sample, not a latency guarantee. These are isolated native-host measurements, not installed/full-app memory reductions; no 80% full-app claim is supported. The subprocess is temporary, not a new resident service. Concurrent parent+child peak was not measured in this production-client run; no combined-peak reduction is claimed. Earlier file-transport prototype figures remain separate in `artifacts/steady-memory/REPORT.md`.
+
+### Completed validation
+
+- `./scripts/build.sh` passed with strict/deep app/helper signatures and ZIP generation. Main app compilation excludes `Sources/Rendering/`; only the helper compiles the CPU pipeline.
+- `./scripts/test-backdrop-art.sh` passed direct/subprocess PNG, JPEG, HEIC and EXIF-rotated exact pixel comparisons; missing/corrupt input fallback; original color/alpha/crop/dimension tests; and retained-image lifetime. Packet tests reject invalid magic/version/format/dimensions/stride/alpha and truncated/extra data.
+- Signed fault helpers exercised crash, nonzero exit, oversized/corrupt output, stalled output, valid output followed by a hang, and in-flight cancellation. Each returned nil within the test bound with its owned child reaped. Missing/tampered helpers and pre-launch cancellation were rejected. The main run loop advanced during a stalled background render. Cache reuse, clear-before-publication and five overlapping generations passed using the real subprocess path.
+- The rendering/transport/lifecycle suite also passed AddressSanitizer with leak detection disabled; no memory-access errors were reported. The later format-round-trip additions passed the normal optimized suite.
+- `python3 scripts/test-renderer-lifetime.py` passed the real helper's independent deadline with undrained stdout and termination within two seconds of abrupt disposable-parent death while the test kept the reader open. It never targeted the live app or guardian.
+- Watchdog, combined recovery/gamma and display-gamma regressions passed with simulated displays/system-lock substitutes. The real gamma ownership probe was explicitly skipped because the installed privacy session held the lease.
+- All **84 update/permission checks** passed, including missing/tampered renderer and valid ad-hoc packages. Localization checks passed for **67 keys**; all **five native permission interaction groups** passed with test-owned windows and an inert Settings opener.
+- DMG creation/checksum passed. Mounted it read-only without Finder, verified the nested signatures and arm64 architecture of all three executables, and compared every app file against both the build and ZIP. The Applications shortcut was correct; the test volume was detached. No release signature or publication was performed.
+
+Evidence: `artifacts/renderer-{build,tests,asan,lifetime,updates,watchdog,recovery,gamma,localizations,permissions,dmg}.log`; reproducible native-host sources, compile logs, six raw samples, summary and mounted-package verification are in `artifacts/renderer-integration/`. Shell syntax and `git diff --check` passed.
+
+The installed Curtain PID 34165 and guardian PID 48035 remained running. No installation, restart, commit or push was performed. New-version end-to-end unlock/Touch ID, actual multi-display/Space/HDR/remote-input behavior, macOS 15 and quarantined helper launch on another Mac, and overnight stability remain unverified. Failure-path/component tests support the implementation but do not establish those live acceptance results. A later live rollout must first end the existing privacy session normally and then verify the new build's full close/unlock/reclose/open flow.
+
+### 2026-11-09: Authorized installation and restart
+
+At the user's request, rebuilt the current memory-optimization worktree with `./scripts/build.sh` and installed/restarted using `./scripts/install.sh`. The previous installed PID 34165 had returned to open through Touch ID before installation; the installer rechecked that state before terminating it normally. The old signed app was copied to ignored `artifacts/reinstall-20261109/Previous-Curtain.app` for rollback.
+
+The new installed process launched at 2026-11-09 05:47:42 UTC as PID 45980, version 0.1.0 (9), build marker `7bfd7ee-dirty`, and remained open at verification. Strict/deep code-signature checks passed. SHA-256 comparisons confirmed the installed main executable, watchdog and new wallpaper renderer exactly match the rebuilt files. Evidence: `artifacts/reinstall-20261109/{build.log,install.log,verification.json}`. No commit or push was made. This verifies installation/startup only; a new-version privacy session, real unlock behavior and full-app steady memory were not exercised by this restart.
+
+## 2026-11-09: macOS 27 virtual-machine validation
+
+Tested the same current optimized package in the existing Tart `mac27` VM: macOS 27.0 (26A428), arm64, four vCPUs, 8 GiB RAM, configured display 1024 x 768. The guest app and both helper executable SHA-256 hashes match `build/Curtain.app`; strict/deep signatures passed inside the guest. The app was installed through a local shared ZIP, not a quarantined internet download. Host compilation and guest execution are distinct: no guest Xcode build or Gatekeeper acceptance is claimed.
+
+### Component tests executed in the guest
+
+- The complete prebuilt `BackdropTests` suite passed: PNG/JPEG/HEIC/EXIF round trips; color, alpha, crop and dimension checks; malformed packets; missing/tampered helpers; crash, nonzero exit, corrupt/oversized output, hangs and cancellation; owned child reaping; responsive main loop; cache clearing and overlapping generations.
+- Simulated display-gamma tests passed multi-display lifecycle, read/write failure rollback and cross-process ownership. These tests did not change actual gamma tables.
+- The watchdog client's `normal` scenario passed heartbeat operation beyond ten seconds, disarm, restart and missing-helper fallback with a fake system-lock implementation. The full watchdog fault matrix and combined recovery/gamma suite were not rerun in this guest.
+- The installed real renderer completed a 756 x 491 request with exit zero and 1,484,808 bytes of packet output. Live sessions below independently exercised its production client and displayed the resulting wallpaper. No new memory comparison was performed in this VM.
+
+### Actual GUI and session checks
+
+Computer Use operated the Tart window with coordinate clicks and guest key input. SSH was used for installation, log collection, a development timeout and process cleanup; it was not used as a substitute for GUI authorization or password entry.
+
+1. First-run permission UI used the correct macOS 27 label, **Device Control and Data Access**. Allow opened that Settings pane. The floating guide's Back button and the main guide's Not Now button worked. Enabling Curtain's switch and completing system authentication removed the app's permission menu item; the next session logged `input-guard started`.
+2. Three menu-triggered privacy sessions each started a ready watchdog before gamma changes and enabled input blocking. The virtual display returned successful zero-gamma readback. The production renderer produced 512 x 384 session artwork in 783–824 ms, and exited after preparation. These three timings are observations in this VM, not a performance guarantee.
+3. First session: guest HID input opened the wallpaper-backed unlock UI. The correct guest login password returned `unlocking -> open`, disarmed the watchdog, stopped input blocking and released the sleep assertion.
+4. Second session: one incorrect password was rejected; approximately twenty seconds after the last input the app returned to `closed` with zero-gamma readback and blocking restored. Reopening the unlock UI worked. The explicitly configured 90-second development timeout then restored `open` and cleaned up the session. This timeout is test-only; the shipped default remains unlimited.
+5. Third session: Escape returned `unlocking -> closed` with the documented three-second cooldown. Sending SIGTERM to the identified guest app PID then disarmed the watchdog, stopped input blocking, restored gamma, released the sleep assertion and exited. The desktop remained visible and no Curtain processes remained.
+
+The virtual display continued to show the desktop in closed state despite successful zero-gamma API readback. Thus this run validates application state and cleanup, **not physical-screen blackout**. Guest input arriving through Tart was classified as hardware input and triggered the unlock UI; this is not acceptance of agent or remote input inside the guest while blocking is enabled. Touch ID was unavailable (`-7`); password fallback worked. Real monitor gamma/HDR, Space/fullscreen transitions, hot-plugging, UU, sleep/system-lock transitions, real fault-triggered system lock and overnight stability remain unverified on macOS 27.
+
+### Issues and environment limits
+
+- **Usability issue found in this pre-fix run (resolved by the adaptive-placement follow-up below):** at the configured small display size, the floating permission guide covered the bottom Settings rows, including Curtain's toggle. Back → Not Now → directly enable the switch worked. The attempted drag did not establish successful drop authorization; drag/drop is not marked passed. No production UI change was made during this test.
+- The VM initially suffered a black WindowServer output. Its first logged GPU Protection Violation at 08:09:29 UTC preceded Curtain startup at 08:10:26, and black output persisted after Curtain exited and across a reboot without Curtain. Closing the restored TV/Settings apps and performing a cold boot recovered a visible desktop. This supports an environment problem but does not prove which app caused it. Guest `screencapture` also failed even while Computer Use could capture the healthy Tart window; it was not used as blackout evidence.
+
+Evidence is in ignored `artifacts/vm27-20261109/`: `curtain.log`, `backdrop-tests.log`, `gamma-tests.log`, `watchdog-tests.log`, `signature.log`, `binary-verification.json`, renderer packet, permission/Settings screenshots and VM GPU logs. Additional GUI observations are preserved in the Computer Use session. The temporary safety preference was removed, the guest app was stopped and the VM was shut down to its initial stopped state. The installed guest app and granted permission remain available for future tests. The host Curtain installation/session was not changed. No commit or push was made.
+
+
+## 2026-11-09: Adaptive permission-guide placement
+
+Fixed the small-screen permission guide covering Curtain's authorization switch. The guide now tries a full strip outside System Settings, then a compact card outside it; when space is insufficient, the compact card uses the left sidebar instead of the permission list. An explicit Hide Permission Guide button dismisses the floating flow without reopening the main window. Back still returns to the main guide. Resizing invalidates the cached full-row drag image. Permission checks, authentication, input filtering, gamma and watchdog behavior are unchanged.
+
+### Validation
+
+- `./scripts/build.sh` passed, including app/helper signing and ZIP packaging. `./scripts/test-permission-interactions.sh` passed all six groups, including crowded-screen placement, negative-origin display geometry, native drag data/snapshot and animation lifecycle. `python3 scripts/test-localizations.py` passed all 68 packaged keys and native English, Simplified Chinese and unsupported-language fallback checks, including both guide sizes.
+- Computer Use on macOS 27.0 (26A428), with an actual 1024 x 768 pt guest desktop, verified English and Chinese compact guides. Curtain's entire permission row and switch remained visible. Direct switch authorization and system authentication succeeded; the floating guide disappeared and the permission menu item was removed.
+- At 1024 x 768, Hide dismissed the guide, the menu reopened it, and Back returned to the setup window. Dragging the compact Curtain row into the Settings list also succeeded: the full-row drag image was visible, Curtain became enabled, and the guide disappeared. This establishes successful drag/drop in this follow-up, superseding the inconclusive pre-fix attempt.
+- After the final drag-cache invalidation change, rebuilt/reinstalled the package and observed its compact guide again. A larger desktop test selected 1440 x 900 in Settings, then Tart's window fitting changed the actual desktop to 1512 x 900 pt (confirmed by an NSScreen probe). On that final size, the full Chinese strip appeared below/outside Settings; text and buttons fit, and direct authorization/authentication again dismissed it. No 1440 x 900 guide acceptance is claimed.
+- The final guest main executable SHA-256 matched the host build (`97eefdbc8ac5f8e7f420af4203d2e54ae2143f027ab7652bd07e78fd69dd5028`), and strict/deep guest signature verification passed. The compact drag/drop and Back/Hide checks preceded only the cache invalidation change; they were not repeated after that final change.
+
+Evidence: ignored `artifacts/permission-placement-20261109/` contains build, permission interaction and localization logs, the final shared ZIP, guest launch/termination logs, display probe and final executable/signature checks. GUI observations are preserved in the Computer Use session. No new privacy session or memory benchmark was run for this UI fix. Physical blackout and the broader macOS 27 limits in the preceding entry remain unverified; multi-monitor placement has geometry coverage but no new live multi-monitor acceptance.
+
+Cleanup: quit the guest test app, removed the temporary Chinese-language override, retained the final installed package and granted permission, restored Tart's configured display to its original 1024 x 768, and shut down the VM. A cleanup reboot showed that Tart can refit the live guest desktop to its host window; the restored value is the VM configuration, not a guarantee of the next GUI window's logical size. The host Curtain installation/session was not changed. No commit or push was made.

@@ -5,3 +5,7 @@ artifacts/
 *.xcuserstate
 xcuserdata/
 *.private-key
+
+# Python test-runner caches
+__pycache__/
+*.py[cod]

@@ -12,6 +12,12 @@ mkdir -p build/module-cache
 # Supported: Apple Silicon, macOS 15 and later (keep in sync with Resources/Info.plist).
 min_macos=15.0
 swiftc_common=(xcrun swiftc -module-cache-path build/module-cache -target "arm64-apple-macos$min_macos")
+# Release optimization is required for the CPU wallpaper pipeline. Keep a deliberate debug mode.
+case ${CURTAIN_BUILD_CONFIGURATION:-release} in
+    release) swiftc_common+=(-Osize -whole-module-optimization) ;;
+    debug) swiftc_common+=(-Onone -g) ;;
+    *) print -u2 "CURTAIN_BUILD_CONFIGURATION must be release or debug"; exit 1 ;;
+esac
 
 identity=${CURTAIN_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
   | awk -F'"' '/Apple Development/ {print $2; exit}')}
@@ -28,8 +34,10 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers"
 $swiftc_common -framework CoreGraphics Sources/Watchdog/*.swift -o "$app/Contents/Helpers/CurtainWatchdog"
 codesign --force --timestamp=none --sign "$identity" "$app/Contents/Helpers/CurtainWatchdog" >/dev/null
+$swiftc_common -framework CoreGraphics -framework Accelerate Sources/Backdrop/*.swift Sources/Rendering/*.swift -o "$app/Contents/Helpers/CurtainRenderer"
+codesign --force --timestamp=none --sign "$identity" "$app/Contents/Helpers/CurtainRenderer" >/dev/null
 $swiftc_common -framework AppKit -framework IOKit -framework ApplicationServices \
-  Sources/Shared/*.swift Sources/App/*.swift build/UpdateTrust.swift -o "$app/Contents/MacOS/Curtain"
+  Sources/Shared/*.swift Sources/Backdrop/*.swift Sources/App/*.swift build/UpdateTrust.swift -o "$app/Contents/MacOS/Curtain"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CurtainUpdatePublicKey string $update_public_key" "$app/Contents/Info.plist"
 # Include untracked source files in dirty detection (git diff alone misses them).

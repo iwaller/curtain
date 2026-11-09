@@ -16,7 +16,7 @@ ARTIFACTS = ROOT / 'artifacts/watchdog-tests'
 ARTIFACTS.mkdir(parents=True, exist_ok=True)
 
 def build(output, sources):
-    subprocess.run(['xcrun', 'swiftc', '-module-cache-path', str(ROOT / 'build/module-cache'),
+    subprocess.run(['xcrun', 'swiftc', '-Osize', '-whole-module-optimization', '-module-cache-path', str(ROOT / 'build/module-cache'),
                     *sources, '-o', str(output)], cwd=ROOT, check=True)
 
 helper = OUT / 'CurtainWatchdogTest'

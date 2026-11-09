@@ -24,8 +24,10 @@ enum BackdropArtTests {
             CGImageDestinationAddImage(destination, source, [kCGImagePropertyOrientation: orientation] as CFDictionary)
             precondition(CGImageDestinationFinalize(destination))
             let size = orientation == 6 ? CGSize(width: 200, height: 300) : CGSize(width: 300, height: 200)
-            let image = BackdropArt.render(url: url, size: size)!
+            let image = BackdropRenderer.render(url: url, size: size)!
             precondition(image.width == Int(size.width) && image.height == Int(size.height))
+            let transported = BackdropRenderJob().render(url: url, size: size)!
+            precondition(rgba(image) == rgba(transported), "Subprocess must preserve pixels: \(name)")
             let pixels = rgba(image)
             func pixel(_ x: Int, _ y: Int) -> (Int, Int, Int) {
                 let index = (y * image.width + x) * 4
@@ -41,11 +43,33 @@ enum BackdropArtTests {
             print("PASS \(name): output dimensions, oriented color regions and opaque corners")
         }
         let missing = directory.appendingPathComponent("missing-image")
-        precondition(BackdropArt.render(url: missing, size: CGSize(width: 100, height: 100)) == nil)
+        precondition(BackdropRenderer.render(url: missing, size: CGSize(width: 100, height: 100)) == nil)
         let corrupt = directory.appendingPathComponent("corrupt-image")
         try Data("not an image".utf8).write(to: corrupt)
-        precondition(BackdropArt.render(url: corrupt, size: CGSize(width: 100, height: 100)) == nil)
+        precondition(BackdropRenderer.render(url: corrupt, size: CGSize(width: 100, height: 100)) == nil)
+        for url in [missing, corrupt] {
+            precondition(BackdropRenderJob().render(url: url, size: CGSize(width: 100, height: 100)) == nil)
+        }
         print("PASS missing/corrupt wallpaper falls back without a result")
+
+        try BackdropRendererTests.run(in: directory)
+        try BackdropRenderJobTests.run(in: directory)
+
+        let slowJob = BackdropRenderJob(helper: URL(fileURLWithPath: "build/fake-backdrop-renderer"), timeout: 0.5)
+        var slowFinished = false
+        DispatchQueue.global().async {
+            precondition(slowJob.render(url: directory.appendingPathComponent("responsive-hang"),
+                                        size: CGSize(width: 2, height: 2)) == nil)
+            DispatchQueue.main.async { slowFinished = true }
+        }
+        var ticks = 0
+        let responsiveDeadline = Date().addingTimeInterval(3)
+        while !slowFinished && Date() < responsiveDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            ticks += 1
+        }
+        precondition(slowFinished && ticks >= 10, "Main run loop must advance during a stalled render")
+        print("PASS main run loop remains responsive during a stalled renderer")
 
         // Exercise real background dispatch and main-run-loop publication without creating
         // windows, changing gamma, requesting authentication or running a privacy session.
@@ -84,7 +108,7 @@ enum BackdropArtTests {
         precondition(BackdropArt.image(for: screen) != nil, "Current desktop wallpaper must render within 10 seconds")
     }
 
-    static func rgba(_ image: CGImage) -> [UInt8] {
+    nonisolated static func rgba(_ image: CGImage) -> [UInt8] {
         var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
         pixels.withUnsafeMutableBytes { bytes in
             let context = CGContext(data: bytes.baseAddress, width: image.width, height: image.height,

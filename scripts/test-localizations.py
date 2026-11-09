@@ -47,7 +47,7 @@ assert info['CFBundleDevelopmentRegion'] == 'en'
 assert info['CFBundleLocalizations'] == ['en', 'zh-Hans']
 info.update(CFBundleIdentifier='local.zjf.curtain.localization-tests', CFBundleExecutable='LocalizationTests')
 (probe / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
-subprocess.run(['xcrun', 'swiftc', '-module-cache-path', str(ROOT / 'build/module-cache'),
+subprocess.run(['xcrun', 'swiftc', '-Osize', '-whole-module-optimization', '-module-cache-path', str(ROOT / 'build/module-cache'),
                 '-framework', 'AppKit', '-framework', 'Security', 'Sources/App/AppVersion.swift',
                 'Sources/App/UpdatePackage.swift', 'Sources/App/PermissionGuide.swift',
                 'Tests/LocalizationTests.swift', '-o', str(binary)], cwd=ROOT, check=True)

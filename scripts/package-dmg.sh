@@ -8,9 +8,9 @@ if [[ ! -d "$app" ]]; then
     exit 1
 fi
 codesign --verify --deep --strict "$app"
-for executable in "$app/Contents/MacOS/Curtain" "$app/Contents/Helpers/CurtainWatchdog"; do
+for executable in "$app/Contents/MacOS/Curtain" "$app/Contents/Helpers/CurtainWatchdog" "$app/Contents/Helpers/CurtainRenderer"; do
     if [[ $(xcrun lipo -archs "$executable") != arm64 ]]; then
-        print -u2 "Curtain releases require arm64-only app and watchdog binaries. Rebuild first."
+        print -u2 "Curtain releases require arm64-only app and helper binaries. Rebuild first."
         exit 1
     fi
 done

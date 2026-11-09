@@ -27,3 +27,7 @@ POC 不修改系统锁屏、休眠或安全配置，不自动启动，不安装�
 实际构建入口为 `./scripts/build.sh`（`xcrun swiftc -framework AppKit`），不需要第三方依赖，输出在忽略的 `build/`。
 
 当前事实主要维护在 [架构地图](architecture.md) 和 [验证记录](verification.md)；设计契约维护在所属子系统。新增源码后补链接，行为变化同步更新。真实截图和日志置于忽略的 `artifacts/`，不写入仓库。
+
+## Build configurations (2026-11-07)
+
+`./scripts/build.sh` defaults to `release` with `-Osize -whole-module-optimization` for the app, CLI and watchdog. Use `CURTAIN_BUILD_CONFIGURATION=debug ./scripts/build.sh` for `-Onone -g`. Both configurations target arm64/macOS 15, use the existing signing/package flow and write the same build output paths; a build never installs or restarts the live app. Unknown configuration names fail before replacing the bundle. Existing regression harnesses compile production code with the release optimization flags; AddressSanitizer rendering checks are separate from performance measurements.

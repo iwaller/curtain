@@ -4,7 +4,9 @@
 
 ## 实现状态
 
-Memory review (2026-11-06): unlock wallpaper preparation now uses bounded ImageIO thumbnails and serial rendering; cached art is released after permitted session cleanup, with stale asynchronous results discarded. Isolated rendering peak footprint fell from 139 MiB to 96 MiB on this Mac; this is not a measurement of the updated full application's peak. See [backdrop lifecycle](subsystems/menu-bar-app.md#backdrop-resource-lifecycle-2026-11-06) and [verification](verification.md).
+macOS 27 VM validation (2026-11-09): the current packaged app passed permission-toggle onboarding, password unlock, wrong-password rejection, idle reclose, Escape, development timeout and SIGTERM cleanup in Tart. Rendering/transport regressions and selected simulated gamma/watchdog tests passed. The permission guide now prefers placement outside Settings, with a compact left-side fallback and a direct dismiss button ([small/large desktop verification](verification.md#2026-11-09-adaptive-permission-guide-placement)); physical gamma blackout, Touch ID and remote-input compatibility are not established by the VM. See [verification](verification.md#2026-11-09-macos-27-virtual-machine-validation).
+
+CPU wallpaper rendering (2026-11-07): bounded ImageIO decoding now feeds a color-managed Core Graphics/Accelerate renderer instead of Core Image. Final artwork is capped at 1024 pixels per axis while native clock/controls retain their resolution. Session cache ownership and guardian-approved cleanup remain unchanged. Release builds enable Swift size/whole-module optimization; `CURTAIN_BUILD_CONFIGURATION=debug` preserves unoptimized debugging. See [backdrop lifecycle](subsystems/menu-bar-app.md#backdrop-resource-lifecycle-2026-11-06) and [verification](verification.md) for measurements and acceptance limits.
 
 About presentation: the commit label remains English in both supported languages; the personal-use notice is removed. See [app maintenance](subsystems/app-maintenance.md).
 
@@ -76,3 +78,8 @@ Updates use a compiled-in Ed25519 public key, verify the detached `Curtain.zip.s
 ## 修复对照后的状态
 
 跨应用角色、非激活面板、独立跨应用面板和 CoreGraphics 显示器捕获都没有通过全屏过渡覆盖，实验改动已回退。窗口轨迹确认至少一轮进入全屏时，遮罩随旧 Space 横向移走；当前源码只增加毫秒日志，尚未修复该问题。结果与后续路线边界见 [验证记录](verification.md)。
+
+
+## Disposable wallpaper renderer (2026-11-07)
+
+The app now packages two signed helpers: `CurtainWatchdog` owns the existing recovery protocol, while `CurtainRenderer` only prepares wallpaper pixels and exits. `Sources/Rendering/` contains ImageIO/Accelerate processing and the renderer entry point; `Sources/Backdrop/` defines the bounded shared pixel protocol. `BackdropArt` delegates to the cancellable `BackdropRenderJob` on its serial background queue and retains only final images. Renderer failure uses the existing gradient without changing gamma, input, authentication or guardian-approved cleanup. Parent-death monitoring and an independent deadline prevent orphaned renderer work. Builds, updater integrity/architecture checks and DMG packaging include both helpers. See the [backdrop lifecycle contract](subsystems/menu-bar-app.md#backdrop-resource-lifecycle-2026-11-06) and [verification record](verification.md) for measured benefits and live-acceptance limits.

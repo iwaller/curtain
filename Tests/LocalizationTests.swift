@@ -36,16 +36,29 @@ enum LocalizationTests {
                      (chinese ? "尚无可用发布，请检查发布页面或稍后再试。" :
                                 "No release is available yet. Check the release page or try again later."))
 
-        // A translated instruction must fit the existing one-line drag strip.
-        let hint = fields(in: drag.contentView!).first { $0.stringValue.hasPrefix(chinese ? "将 Curtain" : "Drag Curtain") }!
-        let required = (hint.stringValue as NSString).size(withAttributes: [.font: hint.font!]).width
-        precondition(required <= hint.bounds.width, "Drag hint is clipped: \(required) > \(hint.bounds.width)")
+        // Check both actual guide layouts with native text measurement.
+        for compact in [false, true] {
+            drag.setCompact(compact)
+            let hint = fields(in: drag.contentView!).first { $0.stringValue.hasPrefix(chinese ? "将 Curtain" : "Drag Curtain") }!
+            let required = (hint.stringValue as NSString).boundingRect(
+                with: NSSize(width: hint.bounds.width, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: hint.font!])
+            precondition(ceil(required.height) <= hint.bounds.height, "Drag hint is clipped")
+            for button in buttons(in: drag.contentView!) {
+                precondition(drag.contentView!.bounds.contains(button.convert(button.bounds, to: drag.contentView)),
+                             "Guide button is outside its panel")
+            }
+        }
         for window in [pending, allowed, drag] {
             window.contentView!.layoutSubtreeIfNeeded()
             precondition(!window.isVisible)
             window.close()
         }
         print("PASS \(expected): native language selection, permission states, interpolation, update error, drag hint width")
+    }
+
+    private static func buttons(in view: NSView) -> [NSButton] {
+        (view as? NSButton).map { [$0] } ?? view.subviews.flatMap { buttons(in: $0) }
     }
 
     private static func fields(in view: NSView) -> [NSTextField] {

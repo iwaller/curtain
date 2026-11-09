@@ -29,7 +29,7 @@ Releases support Apple Silicon (arm64) only. Use a native terminal on an Apple S
    ./scripts/package-release.sh artifacts/release-keys/curtain-update.private-key
    ```
 
-   The script defaults to ad-hoc code signing for both the app and watchdog, builds `build/Curtain.zip`, creates `build/Curtain.zip.sig`, and packages `build/Curtain-arm64.dmg`. The compressed, read-only DMG contains the same signed app and an Applications shortcut for initial installation; the ZIP remains the in-app update format. Set `CURTAIN_SIGN_IDENTITY` explicitly to use a local certificate instead. The signing tool refuses a key that does not match the public key embedded in the archive. Every successful rebuild deletes the old `.sig` and DMG; sign the final ZIP after its last modification.
+   The script defaults to ad-hoc code signing for the app and both helpers (watchdog and wallpaper renderer), builds `build/Curtain.zip`, creates `build/Curtain.zip.sig`, and packages `build/Curtain-arm64.dmg`. The compressed, read-only DMG contains the same signed app and an Applications shortcut for initial installation; the ZIP remains the in-app update format. Set `CURTAIN_SIGN_IDENTITY` explicitly to use a local certificate instead. The signing tool refuses a key that does not match the public key embedded in the archive. Every successful rebuild deletes the old `.sig` and DMG; sign the final ZIP after its last modification.
 
 3. Create a stable GitHub Release with the matching tag and attach **all three** files, named exactly `Curtain-arm64.dmg`, `Curtain.zip` and `Curtain.zip.sig`. Point users to the DMG for first installation; the updater downloads the ZIP and its signature. Do not rename or recompress the signed ZIP. Drafts and prereleases are ignored.
 
